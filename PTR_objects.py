@@ -77,7 +77,10 @@ class TOF_campaign(object):
           Contains the string used as a base for the campaign. The first directory
           PAP will look for in the base is the year
         data_input_level - string
-          Level to be used as input for PAP
+          Level to be used as input for PAP. 
+          Can be "archived", use the df_file_list_info provided in the output log directory
+          to generate the full processing. Used in case IDA analysis has been redone and we
+          need to combine data from different levels to obtain a full analysis.
         data_output_level - string
           Level to be used to store PAP output
         data_config -  dictionary
@@ -270,10 +273,6 @@ class TOF_campaign(object):
     def __str__(self):
         return self.name
     
-    def get_data_level(self):
-        level = 'test'
-        return 'L1.2.{}'.format(level)
-    
     def get_files_dataframe(self, full_archive = False):
         '''
         Datafiles and start/end times excluding dedicated calibrations.
@@ -336,7 +335,6 @@ class TOF_campaign(object):
             df_info.to_csv(f_info)
         
         return df_info
-        
     
     def get_list_hdf5_IDA(self):
         list_hdf5_ambient = []
@@ -364,15 +362,7 @@ class TOF_campaign(object):
         
         else:
             list_hdf5_calib = self.df_file_list_info[self.df_file_list_info.calib.astype(bool)].file.values
-                
-#                for f_hdf5 in self.get_list_hdf5_IDA():
-#                    IDA_analysis = IDA_reader.IDA_data(f_hdf5, **self.data_config)
-#                    IDA_analysis.init_ptr_misc()
-#                    if IDA_analysis.contains_calib():
-#                        list_hdf5_calib.append(f_hdf5)
-#                    
-#                    del [IDA_analysis]
-        
+            
         list_hdf5_calib = np.sort(list_hdf5_calib)
         return list(list_hdf5_calib)
     
@@ -852,7 +842,7 @@ class TOF_campaign(object):
                 
         return df_cc_clusters
 
-    def process(self, ongoing = False, t_start = None, t_stop=None, zero = 'constant'):
+    def process(self, ongoing = False, t_start = None, t_stop=None):
         ##################
         ## Calibrations ##
         ##################
@@ -980,8 +970,9 @@ class TOF_campaign(object):
                 # Process the data
                 ##################
                 print('process data')
+                kw_zero = {key: self.processing_config[key] for key in self.processing_config.keys() if 'zero' in key}
                 PTR_data_object.transform_data_ncr(dict_Xr0,self.processing_config['Xr0_default'])                                                      # Normalise signal
-                PTR_data_object.transform_data_subtract_zero(zero=zero)                                                                                 # Subtract zero
+                PTR_data_object.transform_data_subtract_zero(**kw_zero)                                                                                 # Subtract zero
                 PTR_data_object.transform_data_trcnrc(df_tr_coeff)                                                                                      # Correct for transmission
                 PTR_data_object.transform_data_VMR(df_cc_coeff,k_reac_mz,k_reac_default,multiplier)                                                     # Transform to VMR, use transmission corrected calibration coefficients when available, otherwise use first principles.
                 
@@ -1042,10 +1033,8 @@ class PTR_data(object):
         # self.FPH2 = 645
 
         # Python isotopologue
-        # self.FPH1 = 488
-        # self.FPH2 = 669
-        self.FPH1 = 489
-        self.FPH2 = 653.6
+        self.FPH1 = 488
+        self.FPH2 = 669
         
         # Chemcalc.org
         # self.FPH1 = 476.19
@@ -1058,7 +1047,6 @@ class PTR_data(object):
         # IONICON multiplier
         # self.FPH1 = 500
         # self.FPH2 = 750
-
         
         self.Tr_PH1_to_PH2 = None
         
@@ -1067,7 +1055,7 @@ class PTR_data(object):
         masks = {}
         for key in self.masks.keys():
             masks[key] = self.masks[key][mask]
-            
+        
         PTR_data_object = PTR_data(self.df_data[mask], self.data_description, self.data_units, 
                                    self.df_P_drift[mask], self.df_U_drift[mask], self.df_T_drift[mask], self.df_P_inlet[mask], 
                                    masks, self.df_clusters)
@@ -1144,28 +1132,37 @@ class PTR_data(object):
             
         return None
 
-    def get_zero(self, tdelta_buf_zero = dt.timedelta(minutes=1), tdelta_avg_zero=dt.timedelta(minutes=5), zero='constant'):
+    def get_zero(self, tdelta_buf_zero = dt.timedelta(minutes=1), tdelta_avg_zero=dt.timedelta(minutes=5), tdelta_min_zero=dt.timedelta(minutes=20), zero='constant'):
         if not 'zero_trimmed' in self.masks.keys():
             print('Warning, untrimmed zero mask used to infer zero measurements.')
             mask_calc_zero = msk_r.get_representative_mask_from_multiple_intervals(self.df_data, self.masks['zero'], tdelta_buf_zero, tdelta_avg_zero)
         else:
             mask_calc_zero = msk_r.get_representative_mask_from_multiple_intervals(self.df_data, self.masks['zero_trimmed'], tdelta_buf_zero, tdelta_avg_zero)
         
+        # Check if the zero measurement last sufficient amount of time
+        i_start, i_stop = msk_r.get_start_stop_from_mask(mask_calc_zero)
+        msk = []
+        for i in np.arange(len(i_start)):
+            if self.df_data.index[i_stop[i]] - self.df_data.index[i_start[i]] > tdelta_avg_zero:
+                msk.append(False)
+                continue
+            msk.append(True)
+        i_start = i_start[msk]
+        i_stop = i_stop[msk]
+        
         if ((mask_calc_zero is None) or
             (mask_calc_zero.sum() == 0)):
             print('Error: No zero measurement available from {} to {}'.format(self.df_data.index.min().strftime(format='%Y-%m-%d %H:%M'),self.df_data.index.max().strftime(format='%Y-%m-%d %H:%M')))
             raise ValueError
         
-        # zero correction for the primary ions is not relevant, copy these columns and replace them afterwards
+        # zero correction for the primary ions is not applicable
         df_I_zc = self.df_data.copy()
-#        df_I_zc.drop([self.mz_col_21,self.mz_col_38],axis=1,inplace=True)
         df_I_zc[[self.mz_col_21,self.mz_col_38]] = 0
         
         if zero == 'constant':
             df_I_zero = df_I_zc[mask_calc_zero].mean()
-            
+        
         else:
-            i_start, i_stop = msk_r.get_start_stop_from_mask(mask_calc_zero)
             df_I_zero = df_I_zc.copy()
             df_I_zero[~mask_calc_zero] = np.nan
             for i in np.arange(len(i_start)):
@@ -1190,18 +1187,14 @@ class PTR_data(object):
             
         return df_I_zero
 
-    def get_data_zero_corrected(self, tdelta_buf_zero = dt.timedelta(minutes=1), tdelta_avg_zero=dt.timedelta(minutes=5), zero='constant'):
+    def get_data_zero_corrected(self, tdelta_buf_zero = dt.timedelta(minutes=1), tdelta_avg_zero=dt.timedelta(minutes=5), tdelta_min_zero=dt.timedelta(minutes=20), zero='constant'):
         # zero correction for the primary ions is not relevant, copy these columns and replace them afterwards
-        #df_I_mz21 = self.df_data[self.mz_col_21].copy()
-        #df_I_mz38 = self.df_data[self.mz_col_38].copy()
-        df_I_zc = self.df_data.copy() - self.get_zero(tdelta_buf_zero = tdelta_buf_zero, tdelta_avg_zero = tdelta_avg_zero, zero = zero)
+        df_I_zc = self.df_data.copy() - self.get_zero(tdelta_buf_zero = tdelta_buf_zero, tdelta_avg_zero = tdelta_avg_zero, tdelta_min_zero=tdelta_min_zero, zero = zero)
             
-        #df_I_zc[self.mz_col_21] = df_I_mz21
-        #df_I_zc[self.mz_col_38] = df_I_mz38
         return df_I_zc
         
-    def transform_data_subtract_zero(self, tdelta_buf_zero = dt.timedelta(minutes=1), tdelta_avg_zero=dt.timedelta(minutes=5), zero='constant'):
-        self.df_data = self.get_data_zero_corrected(tdelta_buf_zero = dt.timedelta(minutes=1), tdelta_avg_zero=dt.timedelta(minutes=5), zero = zero)
+    def transform_data_subtract_zero(self, tdelta_buf_zero = dt.timedelta(minutes=1), tdelta_avg_zero=dt.timedelta(minutes=5), tdelta_min_zero=dt.timedelta(minutes=20), zero='constant'):
+        self.df_data = self.get_data_zero_corrected(tdelta_buf_zero=tdelta_buf_zero, tdelta_avg_zero=tdelta_avg_zero, tdelta_min_zero=tdelta_min_zero, zero = zero)
         return None
 
     def get_data_ncr(self, dict_Xr0={}, Xr0_default=1.):
@@ -1508,7 +1501,7 @@ class PTR_data(object):
 
 
     def process_calibration(self, calibration_ancillary, dir_o_cal,
-                             tdelta_buf_zero=dt.timedelta(minutes=1),tdelta_avg_zero=dt.timedelta(minutes=5),
+                             tdelta_buf_zero=dt.timedelta(minutes=1),tdelta_avg_zero=dt.timedelta(minutes=5),tdelta_min_zero=dt.timedelta(minutes=20),
                              tdelta_buf_calib=dt.timedelta(minutes=1),tdelta_avg_calib=dt.timedelta(minutes=5),
                              tdelta_stability=dt.timedelta(minutes=60), zero = 'constant',
                              rate_coeff_col_calib = '', dict_Xr0={}, Xr0_default=1., Q_calib = 10):
@@ -1565,7 +1558,7 @@ class PTR_data(object):
         # Get transmissions and calibration coefficients
         ################################################
         self.transform_data_ncr(dict_Xr0=dict_Xr0,Xr0_default=Xr0_default)
-        self.transform_data_subtract_zero(tdelta_buf_zero = tdelta_buf_zero, tdelta_avg_zero=tdelta_avg_zero, zero=zero)
+        self.transform_data_subtract_zero(tdelta_buf_zero = tdelta_buf_zero, tdelta_avg_zero=tdelta_avg_zero, tdelta_min_zero=tdelta_min_zero, zero=zero)
         
         # Check stability of signal during calibrations
         tmp = self.df_data[mask_check_stability].std()/self.df_data[mask_check_stability].mean()

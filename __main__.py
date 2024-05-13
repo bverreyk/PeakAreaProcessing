@@ -69,6 +69,7 @@ processing_config['acc_interval_calib'] = '20s'                   # Accumulation
 processing_config['acc_interval'] = '1min'                        # Accumumation interval for processing the data, None is at DAQ resolution
 processing_config['origin'] = 'start_day'                         # Origin parameter used by the resample function
 processing_config['offset'] = dt.timedelta(hours=0,minutes=0)     # Offset parameters used by the resample fuction
+processing_config['zero']   = 'interp'
 
 processing_config['processing_interval'] = dt.timedelta(hours=24) # Period where data is processed as 1
 processing_config['output_interval'] = dt.timedelta(hours=24)     # Period covered in one output file
@@ -122,12 +123,6 @@ campaign_config['mz_selection'] = {
                                    }
 
 ##########
-## misc ##
-##########
-zero = 'interp' # constant zero for every processing interval, options include ffil, bfill, interp (where the start of the interval is done with bfill and the end with ffill)
-
-
-##########
 ## Main ##
 ##########
 campaign_config['data_config'] = data_config
@@ -139,7 +134,6 @@ Vielsalm_2023 = PTR_objects.TOF_campaign(**campaign_config)
 
 #Vielsalm_2023.process_calibrations()
 PTR_data = Vielsalm_2023.process(t_start=dt.datetime.strptime('2023-06-08 00:00', '%Y-%m-%d %H:%M'),
-                                 t_stop=dt.datetime.strptime('2023-06-09 00:00', '%Y-%m-%d %H:%M'),
-                                 zero=zero)
+                                 t_stop=dt.datetime.strptime('2023-06-09 00:00', '%Y-%m-%d %H:%M'))
 #PTR_data = Vielsalm_2023.process(t_start=dt.datetime.strptime('2023-12-12 00:00', '%Y-%m-%d %H:%M'),
 #                                 zero = zero)
