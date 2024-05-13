@@ -102,6 +102,9 @@ def get_start_stop_from_mask(mask):
     '''
     Get the indeces where the mask starts/stops flagging data as to be considered.
     '''
+    if len(mask) == 0:
+        return [], []
+    
     mask=np.array(mask)
     diff = np.diff(mask.astype(int))
     start = np.where(diff==1)[0]

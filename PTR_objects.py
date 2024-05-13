@@ -66,28 +66,98 @@ def check_keys(keywords, dict_to_check, dict_name):
 class TOF_campaign(object):
     def __init__(self, name, dir_base, data_input_level, data_output_level, 
                  data_config, processing_config,
-                 year = None, month = None, instrument='TOF4000',
+                 year = None, instrument='TOF4000',
                  calibrations_analysis={'method':'integrated','dir_i_IDA_calibrations':None},
                  mz_selection={'method':None}):
         '''
         name - string
-          Contains the name of the analysis
-        calibrations_analysis
-            integrated - calibrations should be found in between the regular
-                         data.
-            dedicated - The calibrations have been processed with dedicated IDA
+          Contains the name of the analysis/campaign, the first subdirectory for 
+          PAP to look for in the dir_base
+        dir_base - string
+          Contains the string used as a base for the campaign. The first directory
+          PAP will look for in the base is the year
+        data_input_level - string
+          Level to be used as input for PAP
+        data_output_level - string
+          Level to be used to store PAP output
+        data_config -  dictionary
+          contains all the variables used by the IDA reader to construct an IDA data object.
+        processing_config - dictionary
+          acc_interval - string
+            sting to be read by resamplers to accumulate data from the IDA output
+          acc_interval_calib
+            string to be read by resampler to accumumate data to process calibrations
+          origin - string
+            origin parameter to be read by resampler, use 'start_day'
+          offset - dt.timedelta
+            offset parameter to be used by resampler
+          processing_interval - dt.timedelta
+            interval used to process one slap of data.
+            Make sure to have at least 1 interval of zero measurements during this time.
+            Make sure that the processing interval is a multiple of output interval.
+          output_interval - dt.timedelta
+            Period that is covered in 1 output interval. Make sure that the processing
+            interval is a multiple of output interval.
+          tdelta_buf_zero - dt.timedelta
+            buffer used at the end of the zero measurements that is dropped for clculations
+          tdelta_avg_zero - dt.timedelta
+            Averaging period used to calculate the zero value for the zero measurement
+            If tdelta_buf_zero + tdelta_avg_zero is longer than the zero measurement, the
+            zero measurement is not taken into account.
+          tdelta_buf_calib - dt.timedelta
+            buffer used at the end of the calibration measurements that is dropped for clculations
+          tdelta_avg_calib - dt.timedelta
+            Averaging period used to calculate the calibration value for the zero measurement
+            If tdelta_buf_zero + tdelta_avg_zero is longer than the calib measurement, the
+            calib measurement is not taken into account.
+          tdelta_stability - dt.timedelta
+            interval prior to tdelta_buf_calib to check stability of the signal. To be used
+            as a check to see if the calibration is stable or not.
+          rate_coeff_col_calib
+            column in the anciliry calibration table to be used for calculating the transmission
+            information. k_ionicon [1.e-9 cm3 molecule-1 s-1] is used as a standard. Note that
+            the units are assumed to be 1.e-9 cm3 molecule-1 s-1            
+          k_reac_default
+            If no k_reac is known, use this value as a default value.
+            If the k_reac is known, put it in the cluster table after clustering and before processing
+            the campaign.
+          Xr0_default
+            The Xr0 that is used as a default. If not default, put it in the cluster table after clustering
+            and before processing the campaign.
+          tdelta_trim_start - dt.timedelta
+            time after any switch from the valve signal where data are discarded
+          tdelta_trim_stop - dt.timedelta
+            time before any switch fron the valve signal where data are discarded
+        year
+          None - Look for all year in the <base_dir>/<name> file
+                 CURRENTLY NOT SUPPORTED
+          integer - Containing the year
+          array - containing multiple years (string!)
+                  CURRENTLY NOT SUPPORTED
+        instrument - string
+          Name of the instrument, used in the construction of the sting where
+          PAP will read/write the input/output
+        calibrations_analysis - dictionary
+          "method" - 
+            "integrated" - calibrations should be found in between the regular
+                         data. (Default)
+            "dedicated" - The calibrations have been processed with dedicated IDA
                         analysis covering only the calibration data with the 
                         nearby zero measurements.
-        mz_selection
-          method,
+          "dir_i_IDA_calibrations"
+            None (Default)
+            dir_i_IDA_calibrations - string to path with calibration data files
+        mz_selection - dictionary
+          "method",
             None - use exact mz values in files. Not compatible with nesting
-                   between different IDA analysis.
-            cluster - use cluster dataframe containing the average mz value of
-                      the cluster together with upper and lower boundaries.
-                      In case cluster is passed, additional inforation is 
-                      required to see if we shoud read cluster information or 
-                      perform the clustering for the current object.
-            exact - use a list of exact values and match the closest signals
+                   between different IDA analysis. (Default)
+            "cluster" - use cluster dataframe containing the average mz value of
+                       the cluster together with upper and lower boundaries.
+                       In case cluster is passed, additional inforation is 
+                       required to see if we shoud read cluster information or 
+                       perform the clustering for the current object.
+            "exact" - use a list of exact values and match the closest signals
+                      CURRENTLY NOT SUPPORTED
         '''
         #########################
         ## CAMPAIGN ATTRIBUTES ##
@@ -95,6 +165,9 @@ class TOF_campaign(object):
         ## Name
         self.name = name
         
+        ## Instrument name
+        self.instrument = instrument
+
         ## Base path
         if os.path.isdir(dir_base):
             self.dir_base = dir_base
@@ -122,22 +195,11 @@ class TOF_campaign(object):
         else:
             raise ValueError
         
-        ## List input files
-        full_archive = False
-        self.data_input_level = data_input_level
-        if self.data_input_level == 'Archived':
-            full_archive = True
-        
-        self.df_file_list_info = self.get_files_dataframe(full_archive)
-        
-        ## Instrument name
-        self.instrument = instrument
-        
         ## Calibration approach: integrated/dedicated
         if not calibrations_analysis in ('integrated', 'dedicated'):
             raise ValueError
         self.calibrations_analysis = calibrations_analysis
-        
+
         ## Processing configuration        
         keywords = ['acc_interval',
                     'acc_interval_calib',
@@ -159,7 +221,7 @@ class TOF_campaign(object):
         check_keys(keywords, processing_config, 'processing_config')
         self.processing_config = processing_config
         
-        ## Connection m/z between files, create clusters dataframe
+        ## Connection m/z between files
         if not 'method' in mz_selection.keys():
             raise ValueError
             
@@ -187,6 +249,15 @@ class TOF_campaign(object):
         self.mz_selection = mz_selection
         self.data_config = data_config
         
+        ## List input files
+        full_archive = False
+        self.data_input_level = data_input_level
+        if self.data_input_level == 'Archived':
+            full_archive = True
+        
+        self.df_file_list_info = self.get_files_dataframe(full_archive)
+             
+        ## create clusters dataframe
         self.df_clusters = self.get_df_clusters()
 
     def __str__(self):
@@ -201,15 +272,15 @@ class TOF_campaign(object):
         Datafiles and start/end times excluding dedicated calibrations.
         '''
         f_info = '{}available_data.csv'.format(self.dir_o_log)
-        if os.path.exists(f_info):
+        try:
             df_info = pd.read_csv(f_info,index_col=0,dtype={'file':str,'calib':bool})
             df_info['t_start'] = pd.to_datetime(df_info['t_start'])
             df_info['t_stop'] = pd.to_datetime(df_info['t_stop'])
-
-        else:
+        except:
             df_info = None
             
         if not full_archive:
+            print('Gather data on all files')
             list_hdf5 = self.get_list_hdf5_IDA()
             files = []
             t_min = []
@@ -252,9 +323,10 @@ class TOF_campaign(object):
             
             if t_next_start <= t_end:
                 print('Error: overlap between files {} and {}.'.format(ind, ind+1))
-                raise ValueError
+                # raise ValueError
 
-        df_info.to_csv(f_info)
+        if not full_archive:
+            df_info.to_csv(f_info)
         
         return df_info
         
@@ -628,7 +700,7 @@ class TOF_campaign(object):
             new_calib['file']     = f_hdf5
             new_stability['file'] = f_hdf5
             
-            # To save the calibration and transmission convert the keys to strings in order to append. If not, small fluctuation in floats result in reperate columns
+            # To save the calibration and transmission convert the keys to strings in order to append. If not, small fluctuation in floats result in seperate columns
             new_trans     = pd.DataFrame([{str(key): new_trans[key] for key in new_trans.keys()}])
             new_calib     = pd.DataFrame([{str(key): new_calib[key] for key in new_calib.keys()}])
             new_stability = pd.DataFrame([{str(key): new_stability[key] for key in new_stability.keys()}])
@@ -675,7 +747,6 @@ class TOF_campaign(object):
             df_tmp = df_tmp[df_tmp.index <= dt_axis.max()]
         elif t_pairing == 'after':
             df_tmp = df_tmp[df_tmp.index >= dt_axis.min()]
-            
         
         if mz_func == 'interp':
             if t_interp == 'nearest':
@@ -792,7 +863,7 @@ class TOF_campaign(object):
             if not ((col.startswith('t_') or (col.startswith('date_')))):
                 continue
             
-            df_calibration_breaks[col] = df_calibration_breaks.to_datetime(df_calibration_breaks[col],origin=-25569,unit='D')
+            df_calibration_breaks[col] = pd.to_datetime(df_calibration_breaks[col],origin=-25569,unit='D')
         
         
         ######################
@@ -812,31 +883,46 @@ class TOF_campaign(object):
             
             if t_stop is None:
                 t_stop   = self.df_file_list_info.t_stop.max()
-                
+            
+            # process days as a whole
             start = dt.datetime(year = t_start.year,
                                 month = t_start.month,
                                 day = t_start.day,
-                                hour = t_start.hour
                                 )
 
             stop  = dt.datetime(year = t_stop.year,
                                 month = t_stop.month,
-                                day = t_stop.day,
-                                hour = t_stop.hour + 1
+                                day = t_stop.day+1,
                                 )
             
             n_intervals = np.ceil((stop-start)/self.processing_config['processing_interval'])
             
             for i_interval in np.arange(n_intervals):
+                print('start processing interval')
                 # Get the data interval to process
                 ##################################
                 stop = start + self.processing_config['processing_interval']
+                
+                PTR_data_object = None
+                if (t_start <= start) and (t_stop >= stop):
+                    PTR_data_object = self.get_PTR_data(start, stop)
+                elif t_start > start:
+                    PTR_data_object = self.get_PTR_data(t_start, stop)
+                else:
+                    PTR_data_object = self.get_PTR_data(start, t_stop)
+                    
+                
+                # Check if data is found
+                if PTR_data_object is None:
+                    print('No data found between {} and {}.'.format(start.strftime('%Y-%m-%d %H:%M'), stop.strftime('%Y-%m-%d %H:%M')))
+                    start =  stop
+                    continue
                 
                 # Check if we cross a calibration break
                 #######################################
                 t_pairing = 'both'
                 matches = 0
-                for i in np.arange(df_calibration_breaks.index.values):
+                for i in np.arange(len(df_calibration_breaks.index)):
                     t_ref_before_start = df_calibration_breaks.iloc[i].t_first_valid_before
                     t_ref_before_end   = df_calibration_breaks.iloc[i].t_last_valid_before
 
@@ -858,51 +944,48 @@ class TOF_campaign(object):
                         print('----')
                         continue
                 
-                # Check if data is found
-                if PTR_data is None:
-                    print('No data found between {} and {}.'.format(start.strftime('%Y-%m-%d %H:%M'), stop.strftime('%Y-%m-%d %H:%M')))
-                    start =  stop
-                    continue
-                
                 # Resample the data and trim the data masks
                 ###########################################
+                print('resample and trim')
                 if not self.processing_config['acc_interval'] is None:
-                    PTR_data.resample(self.processing_config['acc_interval'], self.processing_config['origin'], self.processing_config['offset'])
-                    
-                PTR_data.trim_masks(self.processing_config['tdelta_trim_start'], self.processing_config['tdelta_trim_stop'])
+                    PTR_data_object.resample(self.processing_config['acc_interval'], self.processing_config['origin'], self.processing_config['offset'])
+                
+                PTR_data_object.trim_masks(self.processing_config['tdelta_trim_start'], self.processing_config['tdelta_trim_stop'])
 
                 # Get the ancilarry dataframes/dictironary to process the data
                 ##############################################################
-                dt_axis = PTR_data.df_data.index
-                df_tr_coeff = self.get_transmissionCoefficients('interp', dt_axis, df_transmission, PTR_data.df_clusters, t_pairing = t_pairing) # Get transmissions
-                PTR_data.Tr_PH1_to_PH2 = df_tr_coeff[PTR_data.mz_col_38].mean()**-1.                                                             # Obtain Tr_PH1_to_PH2 from the transmission dataframe
+                print('Get ancillary')
+                dt_axis = PTR_data_object.df_data.index
+                df_tr_coeff = self.get_transmissionCoefficients('interp', dt_axis, df_transmission, PTR_data_object.df_clusters, t_pairing = t_pairing) # Get transmissions
+                PTR_data_object.Tr_PH1_to_PH2 = df_tr_coeff[PTR_data_object.mz_col_38].mean()**-1.                                                      # Obtain Tr_PH1_to_PH2 from the transmission dataframe
                 
-                dict_Xr0 = self.get_Xr0_mz(PTR_data.df_clusters)                                                                                 # Get Xr0 dictionary for non default values
+                dict_Xr0 = self.get_Xr0_mz(PTR_data_object.df_clusters)                                                                                 # Get Xr0 dictionary for non default values
                 
-                df_cc_coeff     = self.get_calibrationCoefficients(dt_axis, df_calibrations, PTR_data.df_clusters, t_pairing = t_pairing)        # Get calibration coefficients
+                df_cc_coeff     = self.get_calibrationCoefficients(dt_axis, df_calibrations, PTR_data_object.df_clusters, t_pairing = t_pairing)        # Get calibration coefficients
 
                 for mz in df_cc_coeff:
-                    df_cc_coeff[mz] = df_cc_coeff[mz]/df_tr_coeff[mz]                                                                            # Get the transmission corrected calibration coefficients as all data will be transmission corrected 
+                    df_cc_coeff[mz] = df_cc_coeff[mz]/df_tr_coeff[mz]                                                                                   # Get the transmission corrected calibration coefficients as all data will be transmission corrected 
                 
-                k_reac_mz       = self.get_k_reac_mz(PTR_data.df_clusters)                                                                       # Get the reaction rate coefficients for the clusters not using the default value
-                k_reac_default  = self.processing_config['k_reac_default']                                                                       # Set the default
-                multiplier      = self.get_multiplier_mz(PTR_data.df_clusters)                                                                   # Get the multilier (i.e., accounting for fragmentation, isotopic ratio,...) for the identified clusters that have a not 1 value
+                k_reac_mz       = self.get_k_reac_mz(PTR_data_object.df_clusters)                                                                       # Get the reaction rate coefficients for the clusters not using the default value
+                k_reac_default  = self.processing_config['k_reac_default']                                                                              # Set the default
+                multiplier      = self.get_multiplier_mz(PTR_data_object.df_clusters)                                                                   # Get the multilier (i.e., accounting for fragmentation, isotopic ratio,...) for the identified clusters that have a not 1 value
                 
                 # Process the data
                 ##################
-                PTR_data.transform_data_ncr(dict_Xr0,self.processing_config['Xr0_default'])                                                      # Normalise signal
-                PTR_data.transform_data_subtract_zero(zero=zero)                                                                                 # Subtract zero
-                PTR_data.transform_data_trcnrc(df_tr_coeff)                                                                                      # Correct for transmission
-                PTR_data.transform_data_VMR(df_cc_coeff,k_reac_mz,k_reac_default,multiplier)                                                     # Transform to VMR, use transmission corrected calibration coefficients when available, otherwise use first principles.
+                print('process data')
+                PTR_data_object.transform_data_ncr(dict_Xr0,self.processing_config['Xr0_default'])                                                      # Normalise signal
+                PTR_data_object.transform_data_subtract_zero(zero=zero)                                                                                 # Subtract zero
+                PTR_data_object.transform_data_trcnrc(df_tr_coeff)                                                                                      # Correct for transmission
+                PTR_data_object.transform_data_VMR(df_cc_coeff,k_reac_mz,k_reac_default,multiplier)                                                     # Transform to VMR, use transmission corrected calibration coefficients when available, otherwise use first principles.
                 
                 # Save the data
                 ###############
-                n_outputs = np.ceil((start - stop)/self.processing_config['output_interval'])
+                n_outputs = np.ceil((stop - start)/self.processing_config['output_interval'])
                 for i_output in np.arange(n_outputs):
                     t_start = start+i_output*self.processing_config['output_interval']
                     t_end   = t_start+self.processing_config['output_interval']
                     
-                    tmp = PTR_data.get_PTR_data_subsample(t_start, t_end)
+                    tmp = PTR_data_object.get_PTR_data_subsample_time(t_start, t_end)
                     dir_o = '{1}{2}{0}{3}{0}{4}{0}{5}{0}'.format(os.sep,self.dir_base,start.year,self.instrument,'Nominal',self.data_output_level)
                     check_create_output_dir(dir_o)
                     dir_o += t_start.strftime('%m') + os.sep
@@ -912,6 +995,8 @@ class TOF_campaign(object):
                         check_create_output_dir(dir_o)
                     
                     tmp.save_output(dir_o, self.name, self.instrument, df_tr_coeff, df_cc_coeff)
+                
+                del [PTR_data_object]
                 
                 # Setup the next cycle of processing
                 ####################################
@@ -1014,7 +1099,7 @@ class PTR_data(object):
         
         return None
     
-    def trim_masks(self,tdelta_trim_start,tdelta_trim_stop):
+    def trim_masks(self, tdelta_trim_start, tdelta_trim_stop):
         # Trim masks #
         tmp = {}
         for key in self.masks.keys():
@@ -1058,10 +1143,11 @@ class PTR_data(object):
             mask_calc_zero = msk_r.get_representative_mask_from_multiple_intervals(self.df_data, self.masks['zero'], tdelta_buf_zero, tdelta_avg_zero)
         else:
             mask_calc_zero = msk_r.get_representative_mask_from_multiple_intervals(self.df_data, self.masks['zero_trimmed'], tdelta_buf_zero, tdelta_avg_zero)
-            
-        if mask_calc_zero.sum() == 0:
-            print('Error, no zero measurements found in the processing interval. Make sure that this is sufficiently large.')
-            return ValueError
+        
+        if ((mask_calc_zero is None) or
+            (mask_calc_zero.sum() == 0)):
+            print('Error: No zero measurement available from {} to {}'.format(self.df_data.index.min().strftime(format='%Y-%m-%d %H:%M'),self.df_data.index.max().strftime(format='%Y-%m-%d %H:%M')))
+            raise ValueError
         
         # zero correction for the primary ions is not relevant, copy these columns and replace them afterwards
         df_I_zc = self.df_data.copy()
@@ -1108,7 +1194,7 @@ class PTR_data(object):
         return df_I_zc
         
     def transform_data_subtract_zero(self, tdelta_buf_zero = dt.timedelta(minutes=1), tdelta_avg_zero=dt.timedelta(minutes=5), zero='constant'):
-        self.df_data = self.get_data_zero_corrected(tdelta_buf_zero = dt.timedelta(minutes=1), tdelta_avg_zero=dt.timedelta(minutes=5), zero='constant')
+        self.df_data = self.get_data_zero_corrected(tdelta_buf_zero = dt.timedelta(minutes=1), tdelta_avg_zero=dt.timedelta(minutes=5), zero = zero)
         return None
 
     def get_data_ncr(self, dict_Xr0={}, Xr0_default=1.):
@@ -1172,10 +1258,12 @@ class PTR_data(object):
         self.data_units = 'trcncps'
         return None
             
-    def transform_data_VMR(self, df_calibration, k_reac_mz = {}, k_reac_default = 2.e-9, multiplier={}):
+    def transform_data_VMR(self, df_calibration, k_reac_mz = {}, k_reac_default = 2, multiplier={}):
         '''
         Transform normalised data to volume mixing ratio, take into account the transmission, direct calibration, and chemical rates.
-        There is a possibility to define a multiplicator to take into account isotopic ratio. 
+        There is a possibility to define a multiplicator to take into account isotopic ratio.
+          - df_calibration [trcncps ppbv-1]
+          - k_reac(_mz/_default) [1.e-9 cm3 molecule-1 s-1]
         '''
         if not self.data_units == 'trcncps':
             print('Error, to calculate VMRs the signal is assumed to be in transmission corrected normalized counts per second [trcncps]')
@@ -1186,6 +1274,8 @@ class PTR_data(object):
                                                                  self.df_U_drift.mean())
         
         CC_kinetic = k_reac_default*N_DT*t_reac*1.e-3
+        CC_kinetic = CC_kinetic*1.e-9 # Correct for the units in k_default
+
         df_I_ppbv = self.df_data.copy()
         df_I_ppbv = df_I_ppbv/CC_kinetic
         
@@ -1195,8 +1285,8 @@ class PTR_data(object):
         # Correct for compounds with dedicated chemical reaction rate
         self.transform_data_correction(k_reac_mz, default_multiplier = k_reac_default)
 
-        # Correct using the multiplicator (generally isotopic ratio)
-        self.transform_data_correction(multiplier, default_multiplier = 1.)
+        # Correct using the multiplicator (generally isotopic ratio combined with fractioning factor)
+        self.transform_data_correction(multiplier)
         
         self.data_description = 'Mixing Ratio'
         self.data_units = 'ppbv'
@@ -1306,7 +1396,7 @@ class PTR_data(object):
         Q_calib = calib_r.get_Q_calib_corrected(Q_calib)
         
         P_inlet = self.df_P_inlet.mean()
-        print(P_inlet)
+
         Q_PTRMS = calib_r.get_Q_PTRMS_corrected(P_inlet)
 
         # Get the Tr_PH1_to_PH2 factor
@@ -1493,8 +1583,11 @@ class PTR_data(object):
                 continue
             MR_DT = calib_r.get_mixingRatio_driftTube_Calib(Q_calib,Q_PTRMS,Q_zero_air,mixrat_bottle[mz])
             Tr = calib_r.get_transmissionCoefficient(self.df_data, mask_calc_zero, mask_calc_calib,  mz_col,  MR_DT,  k[mz],  fr[mz], N_DT, t_reac)
-        
+            
             tr_coeff[mz] = Tr
+        
+        # Add transmission at 21 (used for normalisation, important to interpolate the Tr_coeff in processing)
+        tr_coeff[21.022] = 1.
         
         # Get calibration coefficients
         for mz in mz_exact:
@@ -1590,8 +1683,6 @@ class PTR_data(object):
             if not 'trimmed' in key:
                 continue
             if self.masks[key].sum() == 0:
-                continue
-            if 'zero' in key:
                 continue
             if 'invalid' in key:
                 continue
@@ -1696,6 +1787,8 @@ class PTR_data(object):
                     units="ppbv trcncps-1",
                 ),
             )
+            
+            print('Writing: {}{}_{}_{}_{}.h5'.format(dir_o,key.split('_')[0],campaign,instrument,self.df_data.index.min().strftime('%Y%m%d-%H%M%S')))
         
             ds_PTRTOF4000 = xr.Dataset({'Signal':da_data,'cluster_min':limits_min,'cluster_max':limits_max,'Xr0':Xr0,'k_reac':k_reac,'multiplier':multiplier,'transmission':transmission,'calibration':calibration})
             ds_PTRTOF4000.to_netcdf('{}{}_{}_{}_{}.h5'.format(dir_o,key.split('_')[0],campaign,instrument,self.df_data.index.min().strftime('%Y%m%d-%H%M%S')),engine='h5netcdf')
