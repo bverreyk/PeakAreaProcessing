@@ -104,12 +104,16 @@ class TOF_campaign(object):
             Averaging period used to calculate the zero value for the zero measurement
             If tdelta_buf_zero + tdelta_avg_zero is longer than the zero measurement, the
             zero measurement is not taken into account.
+          tdelta_min_zero - dt.timedelta
+            minimum period for zero measurements to last for being taken into account
           tdelta_buf_calib - dt.timedelta
             buffer used at the end of the calibration measurements that is dropped for clculations
           tdelta_avg_calib - dt.timedelta
             Averaging period used to calculate the calibration value for the zero measurement
             If tdelta_buf_zero + tdelta_avg_zero is longer than the calib measurement, the
             calib measurement is not taken into account.
+          tdelta_min_calib - dt.timedelta
+            minimum period for calibration measurements to last for being taken into account
           tdelta_stability - dt.timedelta
             interval prior to tdelta_buf_calib to check stability of the signal. To be used
             as a check to see if the calibration is stable or not.
@@ -209,15 +213,18 @@ class TOF_campaign(object):
                     'output_interval',
                     'tdelta_buf_zero',
                     'tdelta_avg_zero',
+                    'tdelta_min_zero',
                     'tdelta_buf_calib',
                     'tdelta_avg_calib',
+                    'tdelta_min_calib',
                     'tdelta_stability',
                     'rate_coeff_col_calib',
                     'k_reac_default',
                     'Xr0_default',
                     'tdelta_trim_start',
                     'tdelta_trim_stop'
-                    ]        
+                    ]
+        
         check_keys(keywords, processing_config, 'processing_config')
         self.processing_config = processing_config
         

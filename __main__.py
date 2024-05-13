@@ -87,7 +87,7 @@ processing_config['tdelta_min_calib'] = dt.timedelta(minutes=70)  # minimum leng
 
 processing_config['rate_coeff_col_calib'] = 'k_ionicon [1.e-9 cm3 molecule-1 s-1]' # Name of the column used in the ancilary calibration file to compute calibration and transmission coefficients
 processing_config['Xr0_default']          = 1.                                     # Default value for Xr0, if you want to adapt these, first construct the df_clusters file and adapt directly here before processing the data
-processing_config['k_reac_default']       = 2                                      # Default reaction rate coefficient, in [1.e-9 cm3 molecule-1 s-1]
+processing_config['k_reac_default']       = 2.                                     # Default reaction rate coefficient, in [1.e-9 cm3 molecule-1 s-1]
 
 ###################################
 ## Campaign object configuration ##
