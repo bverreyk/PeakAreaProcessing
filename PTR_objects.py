@@ -842,7 +842,7 @@ class TOF_campaign(object):
                 
         return df_cc_clusters
 
-    def process(self, ongoing = False, t_start = None, t_stop=None):
+    def process(self, ongoing = False, t_start = None, t_stop=None, masks = []):
         ##################
         ## Calibrations ##
         ##################
@@ -993,7 +993,7 @@ class TOF_campaign(object):
                         dir_o += t_start.strftime('%d') + os.sep
                         check_create_output_dir(dir_o)
                     
-                    tmp.save_output(dir_o, self.name, self.instrument, df_tr_coeff, df_cc_coeff)
+                    tmp.save_output(dir_o, self.name, self.instrument, df_tr_coeff, df_cc_coeff, masks=masks)
                 
                 del [PTR_data_object]
                 
@@ -1677,7 +1677,7 @@ class PTR_data(object):
         
         return ax
     
-    def save_output(self, dir_o, campaign, instrument, df_tr_coeff, df_cc_coeff):
+    def save_output(self, dir_o, campaign, instrument, df_tr_coeff, df_cc_coeff, masks = []):
         # Save the processed data
         #########################
         for key in self.masks.keys():
@@ -1686,6 +1686,10 @@ class PTR_data(object):
             if self.masks[key].sum() == 0:
                 continue
             if 'invalid' in key:
+                continue
+            if ((len(masks) != 0) and 
+                (not key.split('_')[0] in masks)
+                ):
                 continue
             
             mz = self.df_data.columns.values
