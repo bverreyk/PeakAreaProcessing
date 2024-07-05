@@ -1757,7 +1757,7 @@ class PTR_data(object):
                     mz=self.df_clusters[tmp_mask].index.values,
                 ),
                 attrs=dict(
-                    description="Reaction rate",
+                    description="Ion/Molecule reaction rate constant",
                     units="1.e-9 cm3 molecule-1 s-1",
                 ),
             )
