@@ -988,7 +988,8 @@ class TOF_campaign(object):
                     check_create_output_dir(dir_o)
                     dir_o += t_start.strftime('%m') + os.sep
                     check_create_output_dir(dir_o)
-                    if self.processing_config['output_interval'] < dt.timedelta(hours=24):
+                    if ((self.processing_config['output_interval'] is None) or 
+                        (self.processing_config['output_interval'] < dt.timedelta(hours=24))):
                         dir_o += t_start.strftime('%d') + os.sep
                         check_create_output_dir(dir_o)
                     
