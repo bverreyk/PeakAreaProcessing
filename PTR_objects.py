@@ -1220,15 +1220,15 @@ class PTR_data(object):
         
         df_ncr = self.df_data.copy() # copy the original dataframe as to make sure we do not change it
         
-        I_nrc_21, I_nrc_38 = df_ncr[self.mz_col_21], df_ncr[self.mz_col_38]
+        I_cr_21, I_cr_38 = df_ncr[self.mz_col_21], df_ncr[self.mz_col_38]
         
         Xr0 = Xr0_default
-        norm_uncorrected = 1.e6/((self.FPH1*I_nrc_21)+(self.FPH2*self.Tr_PH1_to_PH2*I_nrc_38*Xr0))
+        norm_uncorrected = 1.e6/((self.FPH1*I_cr_21)+(self.FPH2*self.Tr_PH1_to_PH2*I_cr_38*Xr0))
         
         df_ncr = (df_ncr.T*norm_uncorrected.values).T
         for c in dict_Xr0.keys():
             Xr0 = dict_Xr0[c]
-            norm = 1.e6/((self.FPH1*I_nrc_21)+(self.FPH2*self.Tr_PH1_to_PH2*I_nrc_38*Xr0))
+            norm = 1.e6/((self.FPH1*I_cr_21)+(self.FPH2*self.Tr_PH1_to_PH2*I_cr_38*Xr0))
             df_ncr[c] = df_ncr[c]*(norm.values/norm_uncorrected.values)
                     
         return df_ncr
@@ -1391,7 +1391,7 @@ class PTR_data(object):
         #Merging two legends
         ax.legend(h, l, title_fontsize='10',bbox_to_anchor=(1.1,1.05),loc='upper left', ncol=1)
         plt.show()
-        plt.close()        
+        plt.close()
         
         Q_calib = calib_r.get_Q_calib_corrected(Q_calib)
         
@@ -1483,9 +1483,7 @@ class PTR_data(object):
             axs[0].legend()
             
             for iXr0 in [1,0,Xrs[i]]:
-                XR0 = {}
-                XR0[mz_col] = iXr0
-                tmp = tmp_PTR_data.get_data_ncr({mz_col:Xrs[i]},Xr0_default)[mask_calc_calib]
+                tmp = tmp_PTR_data.get_data_ncr({mz_col:iXr0},Xr0_default)[mask_calc_calib]
                 axs[1].plot(np.arange(len(tmp[mz_col])),tmp[mz_col],label='Xr,0={:.3f}'.format(iXr0),linewidth=1)
                 axs[1].legend()
                 axs[1].set_xlabel('sample')
@@ -1581,6 +1579,7 @@ class PTR_data(object):
                 print('Transmission not determined for mz {}.'.format(mz))
                 tr_coeff[mz] = np.nan
                 continue
+            
             MR_DT = calib_r.get_mixingRatio_driftTube_Calib(Q_calib,Q_PTRMS,Q_zero_air,mixrat_bottle[mz])
             Tr = calib_r.get_transmissionCoefficient(self.df_data, mask_calc_zero, mask_calc_calib,  mz_col,  MR_DT,  k[mz],  fr[mz], N_DT, t_reac)
             
@@ -1601,7 +1600,7 @@ class PTR_data(object):
             else:
                 print('WARNING NO SIGNAL FOUND FOR MZ {} IN IDA FILE WITH CALIBRATION'.format(mz))
                 signal = np.nan
-        
+            
             # If the mz value is not in the calibration standard, continue to next loop
             if mixrat_bottle[mz] == 1:
                 continue
@@ -1619,6 +1618,9 @@ class PTR_data(object):
         tr_coeff['ctime'] = ctime.round('1s')
         cc_coeff['ctime'] = ctime.round('1s')
         rstd['ctime']     = ctime.round('1s')
+        
+        cc_coeff['I_cps_H3O1_21'] = self.df_data[mask_calc_calib][self.mz_col_21].mean()
+        cc_coeff['I_cps_H5O2_38'] = self.df_data[mask_calc_calib][self.mz_col_38].mean()
         
         return tr_coeff, cc_coeff, rstd
     
