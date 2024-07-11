@@ -842,7 +842,13 @@ class TOF_campaign(object):
                 
         return df_cc_clusters
 
-    def process(self, ongoing = False, t_start = None, t_stop=None):
+    def process(self, ongoing = False, t_start = None, t_stop=None, masks = [], output_threshold = 1):
+        '''
+        masks: array of strings, contains the masks for which output is asked,
+            Usefull for filtering out profile measurements where no EC can be calculated
+        output_threshold: int, minimum number of values during output_interval in order for the data to be saved. 
+            Usefull to filter HH files with insufficient amount of data.
+        '''
         ##################
         ## Calibrations ##
         ##################
@@ -988,11 +994,12 @@ class TOF_campaign(object):
                     check_create_output_dir(dir_o)
                     dir_o += t_start.strftime('%m') + os.sep
                     check_create_output_dir(dir_o)
-                    if self.processing_config['output_interval'] < dt.timedelta(hours=24):
+                    if ((self.processing_config['output_interval'] is None) or 
+                        (self.processing_config['output_interval'] < dt.timedelta(hours=24))):
                         dir_o += t_start.strftime('%d') + os.sep
                         check_create_output_dir(dir_o)
                     
-                    tmp.save_output(dir_o, self.name, self.instrument, df_tr_coeff, df_cc_coeff)
+                    tmp.save_output(dir_o, self.name, self.instrument, df_tr_coeff, df_cc_coeff, masks=masks,threshold=output_threshold)
                 
                 del [PTR_data_object]
                 
@@ -1678,15 +1685,19 @@ class PTR_data(object):
         
         return ax
     
-    def save_output(self, dir_o, campaign, instrument, df_tr_coeff, df_cc_coeff):
+    def save_output(self, dir_o, campaign, instrument, df_tr_coeff, df_cc_coeff, masks = [], threshold = 1):
         # Save the processed data
         #########################
         for key in self.masks.keys():
             if not 'trimmed' in key:
                 continue
-            if self.masks[key].sum() == 0:
+            if self.masks[key].sum() < threshold:
                 continue
             if 'invalid' in key:
+                continue
+            if ((len(masks) != 0) and 
+                (not key.split('_')[0] in masks)
+                ):
                 continue
             
             mz = self.df_data.columns.values
@@ -1748,7 +1759,7 @@ class PTR_data(object):
                     mz=self.df_clusters[tmp_mask].index.values,
                 ),
                 attrs=dict(
-                    description="Reaction rate",
+                    description="Ion/Molecule reaction rate constant",
                     units="1.e-9 cm3 molecule-1 s-1",
                 ),
             )
