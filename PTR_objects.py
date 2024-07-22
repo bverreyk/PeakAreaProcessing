@@ -1810,7 +1810,7 @@ class PTR_data(object):
                 ),
             )
             
-            file_name = self.get_output_filename(key, campagn, instrument, file_format)
+            file_name = self.get_output_filename(key, campaign, instrument, file_format)
             f_output = '{}{}'.format(dir_o, file_name)
             
             print('Writing: {}'.format(f_output))
