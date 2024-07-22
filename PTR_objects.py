@@ -1685,7 +1685,7 @@ class PTR_data(object):
         
         return ax
     
-    def get_output_filename(self, key, campagn, instrument, file_format):
+    def get_output_filename(self, key, campaign, instrument, file_format):
         outName = ''
         if file_format == 'conf0':
             outName = '{}_{}_{}_{}.h5'.format(key.split('_')[0],campaign,instrument,self.df_data.index.min().strftime('%Y%m%d-%H%M%S'))
