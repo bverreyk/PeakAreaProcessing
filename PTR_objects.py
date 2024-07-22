@@ -1816,6 +1816,6 @@ class PTR_data(object):
             print('Writing: {}'.format(f_output))
         
             ds_PTRTOF4000 = xr.Dataset({'Signal':da_data,'cluster_min':limits_min,'cluster_max':limits_max,'Xr0':Xr0,'k_reac':k_reac,'multiplier':multiplier,'transmission':transmission,'calibration':calibration})
-            ds_PTRTOF4000.to_netcdf('{},engine='h5netcdf')
+            ds_PTRTOF4000.to_netcdf(f_output,engine='h5netcdf')
             
         return None
