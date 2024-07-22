@@ -842,7 +842,7 @@ class TOF_campaign(object):
                 
         return df_cc_clusters
 
-    def process(self, ongoing = False, t_start = None, t_stop=None, masks = [], output_threshold = 1):
+    def process(self, ongoing = False, t_start = None, t_stop=None, masks = [], output_threshold = 1, file_format = 'conf0'):
         '''
         masks: array of strings, contains the masks for which output is asked,
             Usefull for filtering out profile measurements where no EC can be calculated
@@ -999,7 +999,7 @@ class TOF_campaign(object):
                         dir_o += t_start.strftime('%d') + os.sep
                         check_create_output_dir(dir_o)
                     
-                    tmp.save_output(dir_o, self.name, self.instrument, df_tr_coeff, df_cc_coeff, masks=masks,threshold=output_threshold)
+                    tmp.save_output(dir_o, self.name, self.instrument, df_tr_coeff, df_cc_coeff, masks=masks,threshold=output_threshold,file_format=file_format)
                 
                 del [PTR_data_object]
                 
@@ -1685,7 +1685,16 @@ class PTR_data(object):
         
         return ax
     
-    def save_output(self, dir_o, campaign, instrument, df_tr_coeff, df_cc_coeff, masks = [], threshold = 1):
+    def get_output_filename(self, key, campagn, instrument, file_format):
+        outName = ''
+        if file_format == 'conf0':
+            outName = '{}_{}_{}_{}.h5'.format(key.split('_')[0],campaign,instrument,self.df_data.index.min().strftime('%Y%m%d-%H%M%S'))
+        elif file_format == 'EC':
+            outName = '{}_{}_{}_{}.h5'.format(key.split('_')[0],campaign,instrument,self.df_data.index.min().strftime('%Y_%m_%d__%H_%M_%S'))
+            
+        return outName
+    
+    def save_output(self, dir_o, campaign, instrument, df_tr_coeff, df_cc_coeff, masks = [], threshold = 1, file_format = 'conf0'):
         # Save the processed data
         #########################
         for key in self.masks.keys():
@@ -1801,9 +1810,12 @@ class PTR_data(object):
                 ),
             )
             
-            print('Writing: {}{}_{}_{}_{}.h5'.format(dir_o,key.split('_')[0],campaign,instrument,self.df_data.index.min().strftime('%Y%m%d-%H%M%S')))
+            file_name = self.get_output_filename(key, campagn, instrument, file_format)
+            f_output = '{}{}'.format(dir_o, file_name)
+            
+            print('Writing: {}'.format(f_output))
         
             ds_PTRTOF4000 = xr.Dataset({'Signal':da_data,'cluster_min':limits_min,'cluster_max':limits_max,'Xr0':Xr0,'k_reac':k_reac,'multiplier':multiplier,'transmission':transmission,'calibration':calibration})
-            ds_PTRTOF4000.to_netcdf('{}{}_{}_{}_{}.h5'.format(dir_o,key.split('_')[0],campaign,instrument,self.df_data.index.min().strftime('%Y%m%d-%H%M%S')),engine='h5netcdf')
+            ds_PTRTOF4000.to_netcdf('{},engine='h5netcdf')
             
         return None
