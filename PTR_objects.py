@@ -816,7 +816,7 @@ class TOF_campaign(object):
     def get_calibrationCoefficients(self, dt_axis, df_calibrations, df_clusters, t_interp = 'constant', t_pairing='both'):
         df_tmp = df_calibrations.copy()
         df_tmp.set_index('ctime',inplace=True)
-        df_tmp.drop('file',axis=1,inplace=True)
+        df_tmp.drop(['file','I_cps_H3O1_21','I_cps_H5O2_38'],axis=1,inplace=True)
         df_tmp.columns = [float(col) for col in df_tmp.columns]
         
         if not t_interp == 'constant':
