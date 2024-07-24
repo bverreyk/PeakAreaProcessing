@@ -44,9 +44,23 @@ class IDA_data(object):
         if self.ptr_reaction is None:
             self.init_ptr_reaction()
         
-        df_P_drift = self.ptr_reaction[self.dict_reaction['P_drift']['column']]
-        df_U_drift = self.ptr_reaction[self.dict_reaction['U_drift']['column']]
-        df_T_drift = self.ptr_reaction[self.dict_reaction['T_drift']['column']]
+        for to_get in ['P_drift', 'T_drift', 'U_drift']:
+            if self.dict_reaction[to_get]['match'] == 'exact':
+                match = self.dict_reaction[to_get]['column']
+            elif self.dict_reaction[to_get]['match'] == 'StartsWith':
+                reaction_keys = self.ptr_reaction.keys()
+                for key in reaction_keys:
+                    if not key.startswith(self.dict_reaction[to_get]['column']):
+                        continue
+                    match = key
+                    break
+                    
+            if to_get == 'P_drift':
+                df_P_drift = self.ptr_reaction[match]
+            elif to_get == 'U_drift':
+                df_U_drift = self.ptr_reaction[match]
+            elif to_get == 'T_drift':
+                df_T_drift = self.ptr_reaction[match]
         
         if self.ptr_misc is None:
             self.init_ptr_misc()
