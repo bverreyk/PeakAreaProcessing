@@ -67,7 +67,7 @@ class TOF_campaign(object):
     def __init__(self, name, dir_base, data_input_level, data_output_level, 
                  data_config, processing_config,
                  year = None, instrument='TOF4000',
-                 calibrations_analysis={'method':'integrated','dir_i_IDA_calibrations':None},
+                 calibrations_analysis='integrated',
                  mz_selection={'method':None}):
         '''
         name - string
@@ -144,16 +144,12 @@ class TOF_campaign(object):
         instrument - string
           Name of the instrument, used in the construction of the sting where
           PAP will read/write the input/output
-        calibrations_analysis - dictionary
-          "method" - 
-            "integrated" - calibrations should be found in between the regular
+        calibrations_analysis 
+          "integrated" - calibrations should be found in between the regular
                          data. (Default)
-            "dedicated" - The calibrations have been processed with dedicated IDA
+          "dedicated" - The calibrations have been processed with dedicated IDA
                         analysis covering only the calibration data with the 
                         nearby zero measurements.
-          "dir_i_IDA_calibrations"
-            None (Default)
-            dir_i_IDA_calibrations - string to path with calibration data files
         mz_selection - dictionary
           "method",
             None - use exact mz values in files. Not compatible with nesting
@@ -427,7 +423,7 @@ class TOF_campaign(object):
         zipped = sorted(zipped)
         peaks, limits = zip(*zipped)
         
-        df_clusters = pd.DataFrame(data=np.array(limits),columns=['cluster_min','cluster_max'],index=np.array(peaks).round(self.mz_selection['decimal places']),dtype=float)
+        df_clusters = pd.DataFrame(data=np.array(limits),columns=['cluster_min','cluster_max'],index=np.array(peaks).round(self.mz_selection['decimal_places']),dtype=float)
         
         return df_clusters
     
@@ -512,7 +508,7 @@ class TOF_campaign(object):
                     eps = self.mz_selection['eps']
                     min_samples = self.mz_selection['min_samples']
                     
-                    df_clusters = self.get_clustering_DBSCAN(eps, min_samples, self.get_list_hdf5_IDA())
+                    df_clusters = self.get_clustering_DBSCAN(eps, min_samples, self.get_list_hdf5_IDA_all())
                     
                     resolving = self.mz_selection['resolving']
                     fFWHM = self.mz_selection['fFWHM']
@@ -679,7 +675,17 @@ class TOF_campaign(object):
             t_start = t_start - dt.timedelta(minutes=35)
             t_stop  = t_stop + dt.timedelta(minutes=15)
             
-            PTR_data_object = self.get_PTR_data(t_start, t_stop)
+            if self.calibrations_analysis == 'integrated':
+                print('integrated')
+                PTR_data_object = self.get_PTR_data(t_start, t_stop)
+                
+            elif self.calibrations_analysis == 'dedicated':
+                print('dedicated')
+                IDA_object.rebase_to_mz_clusters(self.df_clusters,double_peaks=self.mz_selection['double_peaks'])
+                df_data, data_description, data_units, df_P_drift, df_U_drift, df_T_drift, df_P_inlet, masks = IDA_object.get_PTR_data_for_processing()
+                PTR_data_object = PTR_data(df_data, data_description, data_units, df_P_drift, df_U_drift, df_T_drift, df_P_inlet, masks, self.df_clusters)
+            
+            
             PTR_data_object.resample(self.processing_config['acc_interval_calib'],self.processing_config['origin'],self.processing_config['offset'])
             
             kwords = ['tdelta_buf_zero',
@@ -1131,7 +1137,8 @@ class PTR_data(object):
         # Default multiplier will be used to divide the columns
         for mz, multiplier in selected_multiplier.items():
             mz_col = mz_r.select_mz_cluster_from_exact(mz, self.df_clusters, tol = 0.01, mute = True)
-            if np.isnan(mz_col):
+            if ((np.isnan(mz_col)) or 
+                (not mz_col in self.df_data.columns)):
                 continue
             
             correction_factor = multiplier/default_multiplier
