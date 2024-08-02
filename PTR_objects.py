@@ -62,6 +62,21 @@ def check_keys(keywords, dict_to_check, dict_name):
         
     return None
 
+def decimal_rounder_floor(number, decimal_places=4):
+    str_format = '{:.' + str(decimal_places) + 'f}'
+    rounded = float(str_format.format(number))
+    if rounded > number:
+        rounded = rounded - 10**(-1*decimal_places)
+    rounded = float(str_format.format(rounded))
+    return rounded
+
+def decimal_rounder_ceil(number, decimal_places=4):
+    str_format = '{:.' + str(decimal_places) + 'f}'
+    rounded = float(str_format.format(number))
+    if rounded < number:
+        rounded = rounded + 10**(-1*decimal_places)
+    rounded = float(str_format.format(rounded))
+    return rounded
 
 class TOF_campaign(object):
     def __init__(self, name, dir_base, data_input_level, data_output_level, 
@@ -372,6 +387,9 @@ class TOF_campaign(object):
     
     def get_clustering_info(self, list_hdf5 = None):
         list_hdf5 = self.df_file_list_info.file.values
+        if self.calibrations_analysis == 'dedicated':
+            list_hdf5 = np.append(list_hdf5, self.get_list_hdf5_IDA_calibrations())
+            
         x = []
         y = []
         
@@ -406,6 +424,9 @@ class TOF_campaign(object):
         peaks_pdf = grouped.mean()
         limits_min = grouped.min()
         limits_max = grouped.max()
+        
+        limits_min['m/z'] = [decimal_rounder_floor(value,self.mz_selection['decimal_places']) for value in limits_min['m/z']]
+        limits_max['m/z'] = [decimal_rounder_ceil(value,self.mz_selection['decimal_places']) for value in limits_max['m/z']]
         
         # organise peaks and limits in arrays
         peaks = []
@@ -1330,6 +1351,9 @@ class PTR_data(object):
                                                                     filter_buffer=dt.timedelta(seconds=60),
                                                                     match_switches=dt.timedelta(seconds=600),
                                                                     version=2)
+            print('Overwriting the zero and calibration mask values from inferred.')
+            self.masks['zero'] = mask_zero
+            self.masks['calib'] = mask_calib
 
         # Zero interval averaging mask
         mask_calc_zero = msk_r.get_representative_mask_from_multiple_intervals(self.df_data, self.masks['zero'], tdelta_buf_zero, tdelta_avg_zero)
@@ -1539,6 +1563,7 @@ class PTR_data(object):
         Q_calib = calib_r.get_Q_calib_corrected(Q_calib)
         
         P_inlet = self.df_P_inlet.mean()
+        print(P_inlet)
         Q_PTRMS = calib_r.get_Q_PTRMS_corrected(P_inlet)
         Q_zero_air = 800
 
