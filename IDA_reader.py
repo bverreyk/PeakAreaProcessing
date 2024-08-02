@@ -36,7 +36,8 @@ class IDA_data(object):
     def get_PTR_data_for_processing(self):
         if self.data is None:
             self.init_data()
-            
+        
+        
         df_data = self.data
         data_description = self.data_description
         data_units = self.data_units
@@ -45,9 +46,14 @@ class IDA_data(object):
             self.init_ptr_reaction()
         
         for to_get in ['P_drift', 'T_drift', 'U_drift']:
-            if self.dict_reaction[to_get]['match'] == 'exact':
+            id_method = 'exact'
+            if 'match' in self.dict_reaction[to_get].keys():
+                id_method = self.dict_reaction[to_get]['match']
+            
+            
+            if id_method == 'exact':
                 match = self.dict_reaction[to_get]['column']
-            elif self.dict_reaction[to_get]['match'] == 'StartsWith':
+            elif id_method == 'StartsWith':
                 reaction_keys = self.ptr_reaction.keys()
                 for key in reaction_keys:
                     if not key.startswith(self.dict_reaction[to_get]['column']):
@@ -148,7 +154,7 @@ class IDA_data(object):
             self.data = self.data.T.groupby(by=self.data.columns).sum().T
             
         else:
-            print('Error: method not recognised, please chose between renaming or df_cluster')
+            print('Error: method not recognised')
             
         return None
     
