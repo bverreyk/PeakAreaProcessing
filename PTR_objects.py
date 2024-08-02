@@ -718,7 +718,7 @@ class TOF_campaign(object):
                      ]
             
             dir_o_cal = self.get_dir_o_calib()
-            new_trans, new_calib, new_stability = PTR_data_object.process_calibration(calibration_ancillary, dir_o_cal, **{key: self.processing_config[key] for key in kwords})
+            new_trans, new_calib, new_stability = PTR_data_object.process_calibration(calibration_ancillary, dir_o_cal, **{key: self.processing_config[key] for key in kwords}, Q_ptrms_corr=self.name)
 
             new_trans['file']     = f_hdf5
             new_calib['file']     = f_hdf5
@@ -1378,6 +1378,7 @@ class PTR_data(object):
                              tdelta_stability=dt.timedelta(minutes=60), zero = 'constant',
                              rate_coeff_col_calib = '', Xr0_default = 1,
                              Q_calib = 10, Q_zero_air = 800, mz_exact_infer_masks = 59.049,
+                             Q_ptrms_corr = 'BE-Vie_2022',
                              zero_tolerance = 100, calib_tolerance = 5, infer_method = 'max',
                              estimator_averaging='5min',filter_buffer=dt.timedelta(seconds=60),match_switches=dt.timedelta(seconds=1800),
                              allow_below_zero=True, scan = None):
@@ -1435,7 +1436,7 @@ class PTR_data(object):
         
         P_inlet = self.df_P_inlet.mean()
 
-        Q_PTRMS = calib_r.get_Q_PTRMS_corrected(P_inlet)
+        Q_PTRMS = calib_r.get_Q_PTRMS_corrected(P_inlet,campaign=Q_ptrms_corr)
 
         # Get the Tr_PH1_to_PH2 factor
         ##############################
@@ -1540,7 +1541,7 @@ class PTR_data(object):
                              tdelta_buf_zero=dt.timedelta(minutes=1),tdelta_avg_zero=dt.timedelta(minutes=5),tdelta_min_zero=dt.timedelta(minutes=20),
                              tdelta_buf_calib=dt.timedelta(minutes=1),tdelta_avg_calib=dt.timedelta(minutes=5),
                              tdelta_stability=dt.timedelta(minutes=60), zero = 'constant',
-                             rate_coeff_col_calib = '', dict_Xr0={}, Xr0_default=1., Q_calib = 10):
+                             rate_coeff_col_calib = '', dict_Xr0={}, Xr0_default=1., Q_calib = 10, Q_ptrms_corr = 'BE-Vie_2022'):
         rstd = {}
         cc_coeff = {}
         tr_coeff = {}
@@ -1564,7 +1565,7 @@ class PTR_data(object):
         
         P_inlet = self.df_P_inlet.mean()
         print(P_inlet)
-        Q_PTRMS = calib_r.get_Q_PTRMS_corrected(P_inlet)
+        Q_PTRMS = calib_r.get_Q_PTRMS_corrected(P_inlet, campaign=Q_ptrms_corr)
         Q_zero_air = 800
 
         # Get the Tr_PH1_to_PH2 factor

@@ -23,21 +23,27 @@ def get_ancilarry_PTRT_drift_calib_av(P_drift_calib_av,T_drift_calib_av,U_drift_
     
     return t_reac, N_DT
 
-def get_Q_PTRMS_corrected(P_inlet,campaign='RTG_BE-Vie_2022'):
+def get_Q_PTRMS_corrected(P_inlet,campaign='Vie_2022'):
     Q_PTRMS = np.nan
     
+    p_offset = 20 # Pressure drop from Catalitic converter, estimate by Niels and to be optimized
     # Emperical relation between P_inlet en Q_PTRMS from fit Niels Schoon (2022)
-    if campaign == 'RTG_BE-Vie_2022':
-        # P_inlet - 20 omdat de Catalytische converter een drukval levert in de leiding waar de druk niet direct wordt opgemeten (~20 Torr door Niels afgeschat).
-        Q_PTRMS = 0.24416*(P_inlet-20)-83.42196
+    if campaign == 'BE-Vie_2022':
+        A = 0.25833 # sccm Torr-1
+        B = -92.48601 # sccm
     
+    elif campaign == 'BE-Vie_2023':
+        A = 0.26419
+        B = -94.48497
+        
+    Q_PTRMS = A*(P_inlet-p_offset)-B
+
     return Q_PTRMS
 
 def get_Q_calib_corrected(Q_calib,campaign='RTG_BE-Vie_2022'):
     if campaign == 'RTG_BE-Vie_2022':
         # Correction as the flow meters are using different reference points (0 deg centigrade vs 20)
         Q_calib = Q_calib*(273.16+20)/273.16
-    
     return Q_calib
 
 def get_mixingRatio_driftTube_Calib(Q_calib,Q_PTRMS,Q_zero_air,MR_bottle):

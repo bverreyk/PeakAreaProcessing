@@ -62,7 +62,10 @@ class IDA_data(object):
                     break
                     
             if to_get == 'P_drift':
-                df_P_drift = self.ptr_reaction[match]
+                correction = 1.
+                if self.dict_reaction[to_get]['units'] == 'hecto Torr':
+                    correction = 1.e2
+                df_P_drift = self.ptr_reaction[match]*correction
             elif to_get == 'U_drift':
                 df_U_drift = self.ptr_reaction[match]
             elif to_get == 'T_drift':
