@@ -35,8 +35,13 @@ def get_Q_PTRMS_corrected(P_inlet,campaign='Vie_2022'):
     elif campaign == 'BE-Vie_2023':
         A = 0.26419
         B = -94.48497
+    else:
+        # Default to Q_PTRMS = 80
+        print('Warning, campaign not parameterised to calculate Q_PTRMS, default to = 80.')
+        return 80.
         
     Q_PTRMS = A*(P_inlet-p_offset)-B
+
 
     return Q_PTRMS
 
