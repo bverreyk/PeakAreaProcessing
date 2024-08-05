@@ -247,7 +247,7 @@ def infer_zero_and_calib_mask(df, mz_exact, zero_tolerance = 100, calib_toleranc
                 
     return infer_mask_zero, infer_mask_calib
 
-def get_representative_mask(df, dt_begin, dt_end, tdelta_buf, tdelta_avg):
+def get_representative_mask(df, dt_begin, dt_end, tdelta_buf, tdelta_avg, mute = False):
     '''
     Get the masks used to calculate zero/calibration (normalised) count rates.
     This mask is calculated using the datetime of the end of the relevant measurements, together with timedeltas consistent with buffering and averaging intervals.
@@ -259,19 +259,20 @@ def get_representative_mask(df, dt_begin, dt_end, tdelta_buf, tdelta_avg):
 
     # If the start of the averaging interval if before the begining, warn the user and return a mask that does not select any measurements
     if dt_start < dt_begin:
-        print('Error, the start of your averaging interval is located before the beginning of your measurement type')
+        if not mute:
+            print('Error, the start of your averaging interval is located before the beginning of your measurement type')
         mask = mask*False
     
     return mask
 
-def get_representative_mask_from_multiple_intervals(df,mask,tdelta_buf,tdelta_avg):
+def get_representative_mask_from_multiple_intervals(df,mask,tdelta_buf,tdelta_avg, mute = False):
     starts, stops = get_start_stop_from_mask(mask)
     
     mask_calc = None
     for i in np.arange(len(starts)):
         dt_begin = df.index[starts[i]]
         dt_end = df.index[stops[i]]
-        tmp = get_representative_mask(df, dt_begin, dt_end, tdelta_buf, tdelta_avg)
+        tmp = get_representative_mask(df, dt_begin, dt_end, tdelta_buf, tdelta_avg, mute = mute)
         if mask_calc is None:
             mask_calc = tmp
         mask_calc = (mask_calc) | tmp

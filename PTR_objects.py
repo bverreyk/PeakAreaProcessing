@@ -922,8 +922,10 @@ class TOF_campaign(object):
 
             stop  = dt.datetime(year = t_stop.year,
                                 month = t_stop.month,
-                                day = t_stop.day+1,
+                                day = t_stop.day,
                                 )
+            
+            stop = stop + dt.timedelta(hours=24)
             
             n_intervals = np.ceil((stop-start)/self.processing_config['processing_interval'])
             
@@ -998,14 +1000,15 @@ class TOF_campaign(object):
                 
                 k_reac_mz       = self.get_k_reac_mz(PTR_data_object.df_clusters)                                                                       # Get the reaction rate coefficients for the clusters not using the default value
                 k_reac_default  = self.processing_config['k_reac_default']                                                                              # Set the default
-                multiplier      = self.get_multiplier_mz(PTR_data_object.df_clusters)                                                                   # Get the multilier (i.e., accounting for fragmentation, isotopic ratio,...) for the identified clusters that have a not 1 value
+                multiplier      = self.get_multiplier_mz(PTR_data_object.df_clusters)                                                                   # Get the multiplier (i.e., accounting for fragmentation, isotopic ratio,...) for the identified clusters that have a not 1 value
                 
                 # Process the data
                 ##################
                 print('process data')
                 kw_zero = {key: self.processing_config[key] for key in self.processing_config.keys() if 'zero' in key}
+                
                 PTR_data_object.transform_data_ncr(dict_Xr0,self.processing_config['Xr0_default'])                                                      # Normalise signal
-                PTR_data_object.transform_data_subtract_zero(**kw_zero)                                                                                 # Subtract zero
+                PTR_data_object.transform_data_subtract_zero(**kw_zero, mute = True)                                                                                 # Subtract zero
                 PTR_data_object.transform_data_trcnrc(df_tr_coeff)                                                                                      # Correct for transmission
                 PTR_data_object.transform_data_VMR(df_cc_coeff,k_reac_mz,k_reac_default,multiplier)                                                     # Transform to VMR, use transmission corrected calibration coefficients when available, otherwise use first principles.
                 
@@ -1167,12 +1170,12 @@ class PTR_data(object):
             
         return None
 
-    def get_zero(self, tdelta_buf_zero = dt.timedelta(minutes=1), tdelta_avg_zero=dt.timedelta(minutes=5), tdelta_min_zero=dt.timedelta(minutes=20), zero='constant'):
+    def get_zero(self, tdelta_buf_zero = dt.timedelta(minutes=1), tdelta_avg_zero=dt.timedelta(minutes=5), tdelta_min_zero=dt.timedelta(minutes=20), zero='constant', mute = False):
         if not 'zero_trimmed' in self.masks.keys():
             print('Warning, untrimmed zero mask used to infer zero measurements.')
-            mask_calc_zero = msk_r.get_representative_mask_from_multiple_intervals(self.df_data, self.masks['zero'], tdelta_buf_zero, tdelta_avg_zero)
+            mask_calc_zero = msk_r.get_representative_mask_from_multiple_intervals(self.df_data, self.masks['zero'], tdelta_buf_zero, tdelta_avg_zero, mute=mute)
         else:
-            mask_calc_zero = msk_r.get_representative_mask_from_multiple_intervals(self.df_data, self.masks['zero_trimmed'], tdelta_buf_zero, tdelta_avg_zero)
+            mask_calc_zero = msk_r.get_representative_mask_from_multiple_intervals(self.df_data, self.masks['zero_trimmed'], tdelta_buf_zero, tdelta_avg_zero, mute=mute)
         
         # Check if the zero measurement last sufficient amount of time
         i_start, i_stop = msk_r.get_start_stop_from_mask(mask_calc_zero)
@@ -1222,14 +1225,14 @@ class PTR_data(object):
             
         return df_I_zero
 
-    def get_data_zero_corrected(self, tdelta_buf_zero = dt.timedelta(minutes=1), tdelta_avg_zero=dt.timedelta(minutes=5), tdelta_min_zero=dt.timedelta(minutes=20), zero='constant'):
+    def get_data_zero_corrected(self, tdelta_buf_zero = dt.timedelta(minutes=1), tdelta_avg_zero=dt.timedelta(minutes=5), tdelta_min_zero=dt.timedelta(minutes=20), zero='constant', mute = False):
         # zero correction for the primary ions is not relevant, copy these columns and replace them afterwards
-        df_I_zc = self.df_data.copy() - self.get_zero(tdelta_buf_zero = tdelta_buf_zero, tdelta_avg_zero = tdelta_avg_zero, tdelta_min_zero=tdelta_min_zero, zero = zero)
-            
+        df_I_zc = self.df_data.copy() - self.get_zero(tdelta_buf_zero = tdelta_buf_zero, tdelta_avg_zero = tdelta_avg_zero, tdelta_min_zero=tdelta_min_zero, zero = zero, mute = mute)
+        
         return df_I_zc
         
-    def transform_data_subtract_zero(self, tdelta_buf_zero = dt.timedelta(minutes=1), tdelta_avg_zero=dt.timedelta(minutes=5), tdelta_min_zero=dt.timedelta(minutes=20), zero='constant'):
-        self.df_data = self.get_data_zero_corrected(tdelta_buf_zero=tdelta_buf_zero, tdelta_avg_zero=tdelta_avg_zero, tdelta_min_zero=tdelta_min_zero, zero = zero)
+    def transform_data_subtract_zero(self, tdelta_buf_zero = dt.timedelta(minutes=1), tdelta_avg_zero=dt.timedelta(minutes=5), tdelta_min_zero=dt.timedelta(minutes=20), zero='constant', mute = False):
+        self.df_data = self.get_data_zero_corrected(tdelta_buf_zero=tdelta_buf_zero, tdelta_avg_zero=tdelta_avg_zero, tdelta_min_zero=tdelta_min_zero, zero = zero, mute = mute)
         return None
 
     def get_data_ncr(self, dict_Xr0={}, Xr0_default=1.):
@@ -1265,7 +1268,7 @@ class PTR_data(object):
             Xr0 = dict_Xr0[c]
             norm = 1.e6/((self.FPH1*I_cr_21)+(self.FPH2*self.Tr_PH1_to_PH2*I_cr_38*Xr0))
             df_ncr[c] = df_ncr[c]*(norm.values/norm_uncorrected.values)
-                    
+        
         return df_ncr
     
     
@@ -1292,7 +1295,7 @@ class PTR_data(object):
         self.data_description = 'Transmission corrected normalised ion count'
         self.data_units = 'trcncps'
         return None
-            
+    
     def transform_data_VMR(self, df_calibration, k_reac_mz = {}, k_reac_default = 2, multiplier={}):
         '''
         Transform normalised data to volume mixing ratio, take into account the transmission, direct calibration, and chemical rates.
@@ -1311,17 +1314,26 @@ class PTR_data(object):
         CC_kinetic = k_reac_default*N_DT*t_reac*1.e-3
         CC_kinetic = CC_kinetic*1.e-9 # Correct for the units in k_default
 
-        df_I_ppbv = self.df_data.copy()
-        df_I_ppbv = df_I_ppbv/CC_kinetic
+        self.df_data = self.df_data/CC_kinetic
         
         # Correct for calibrated compounds
-        self.transform_data_correction(df_calibration.T.to_dict())
+        cc_corrections = {key: val**-1 for key, val in df_calibration.T.to_dict()[0].items()}
+        self.transform_data_correction(cc_corrections,default_multiplier=CC_kinetic**-1)
         
+        # Combine other corrections
         # Correct for compounds with dedicated chemical reaction rate
-        self.transform_data_correction(k_reac_mz, default_multiplier = k_reac_default)
-
+        corrections = {key: val**-1 for key, val in k_reac_mz.items()}
+        default_multiplier = k_reac_default**-1
+        
         # Correct using the multiplicator (generally isotopic ratio combined with fractioning factor)
-        self.transform_data_correction(multiplier)
+        for key, val in multiplier.items():
+            if key in corrections.keys():
+                corrections[key] = corrections[key]*val
+            else:
+                corrections[key] = val
+        default_multiplier = default_multiplier*1
+
+        self.transform_data_correction(corrections,default_multiplier=default_multiplier)
         
         self.data_description = 'Mixing Ratio'
         self.data_units = 'ppbv'
@@ -1564,7 +1576,6 @@ class PTR_data(object):
         Q_calib = calib_r.get_Q_calib_corrected(Q_calib)
         
         P_inlet = self.df_P_inlet.mean()
-        print(P_inlet)
         Q_PTRMS = calib_r.get_Q_PTRMS_corrected(P_inlet, campaign=Q_ptrms_corr)
         Q_zero_air = 800
 
@@ -1585,7 +1596,7 @@ class PTR_data(object):
         t_reac, N_DT = calib_r.get_ancilarry_PTRT_drift_calib_av(self.df_P_drift.mean(),
                                                                  self.df_T_drift.mean(),
                                                                  self.df_U_drift.mean())
-        
+                
         if not self.data_units == 'cps':
             print('Error, units not correct to calculate Tr_PH1_to_PH2')
             print(self.data_units)
