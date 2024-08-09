@@ -32,7 +32,7 @@ except:
     import mask_routines as msk_r
 
 ######################
-## Campaign objects ##
+## Support toutines ##
 ######################
 def check_create_output_dir(path):
     '''
@@ -78,12 +78,25 @@ def decimal_rounder_ceil(number, decimal_places=4):
     rounded = float(str_format.format(rounded))
     return rounded
 
+def get_timezone(offset):
+    if not offset.startswith('UTC'):
+        return ValueError
+    if len(offset) == 3:
+        offset = 0
+    else:
+        offset = float(offset[3:])
+    
+    return dt.timezone(dt.timedelta(hours=offset))
+
+######################
+## Campaign objects ##
+######################
 class TOF_campaign(object):
     def __init__(self, name, dir_base, data_input_level, data_output_level, 
                  data_config, processing_config,
                  year = None, instrument='TOF4000',
                  calibrations_analysis='integrated',
-                 mz_selection={'method':None}):
+                 mz_selection={'method':None},time_info={'IDA_output':'UTC','PAP_output':'UTC+1'}):
         '''
         name - string
           Contains the name of the analysis/campaign, the first subdirectory for 
@@ -163,7 +176,6 @@ class TOF_campaign(object):
           "integrated" - calibrations should be found in between the regular
                          data. (Default)
           "dedicated" - The calibrations have been processed with dedicated IDA
-                        analysis covering only the calibration data with the 
                         nearby zero measurements.
         mz_selection - dictionary
           "method",
@@ -270,12 +282,23 @@ class TOF_campaign(object):
         self.mz_selection = mz_selection
         self.data_config = data_config
         
+        ## timing information
+        keywords = ['PAP_output',
+                    'IDA_output'
+                    ]
+        check_keys(keywords, time_info, 'time_info')
+        
+        time_info['tz_in'] = get_timezone(time_info['IDA_output'])
+        time_info['tz_out'] = get_timezone(time_info['PAP_output'])
+        
+        self.time_info = time_info
+
         ## List input files
         full_archive = False
         self.data_input_level = data_input_level
         if self.data_input_level == 'Archived':
             full_archive = True
-        
+            
         self.df_file_list_info = self.get_files_dataframe(full_archive)
              
         ## create clusters dataframe
@@ -309,7 +332,7 @@ class TOF_campaign(object):
                     continue
                 
                 files.append(f_hdf5)
-                IDA_object = IDA_reader.IDA_data(f_hdf5, **self.data_config)
+                IDA_object = IDA_reader.IDA_data(f_hdf5, **self.data_config, tz_info=self.time_info['tz_in'])
                 times = IDA_object.get_time_axis()
                 t_min.append(times.min())
                 t_max.append(times.max())
@@ -335,7 +358,7 @@ class TOF_campaign(object):
             if ind == entries-1:
                 break
             
-            t_end = df_info.loc[index_val[ind],'t_stop']            
+            t_end = df_info.loc[index_val[ind],'t_stop']
             t_next_start = df_info.loc[index_val[ind+1],'t_start']
             
             if t_next_start <= t_end:
@@ -344,6 +367,12 @@ class TOF_campaign(object):
 
         if not full_archive:
             df_info.to_csv(f_info)
+        
+        try: # Try assigning time zone if not in file
+            df_info['t_start'] = df_info['t_start'].dt.tz_localize(tz=self.time_info['tz_in'])
+            df_info['t_stop'] = df_info['t_stop'].dt.tz_localize(tz=self.time_info['tz_in'])
+        except: # If time zone already present, do nothing
+            pass
         
         return df_info
     
@@ -398,7 +427,7 @@ class TOF_campaign(object):
         index = 0
         for f_hdf5 in list_hdf5:
             index += 1
-            IDA_object = IDA_reader.IDA_data(f_hdf5, **self.data_config)
+            IDA_object = IDA_reader.IDA_data(f_hdf5, **self.data_config, tz_info=self.time_info['tz_in'])
             mz = IDA_object.get_mz_exact()
             n.append(len(mz))
             
@@ -561,7 +590,13 @@ class TOF_campaign(object):
             
         return df_clusters
     
-    def get_PTR_data(self,t_start, t_stop):
+    def get_PTR_data(self,t_start, t_stop, tz_info = None):
+        if t_start.tzinfo is None:
+            if tz_info is None:
+                tz_info = self.time_info['tz_in']
+            t_start = t_start.replace(tzinfo=tz_info)
+            t_stop = t_stop.replace(tzinfo=tz_info)
+        
         # Only selected clusters are elligable for processing
         df_clusters = self.df_clusters[self.df_clusters['selected']]
         
@@ -577,7 +612,7 @@ class TOF_campaign(object):
             if t_stop  < self.df_file_list_info.iloc[i].t_start:
                 continue
 
-            IDA_object = IDA_reader.IDA_data(f_hdf5, **self.data_config)
+            IDA_object = IDA_reader.IDA_data(f_hdf5, **self.data_config, tz_info=self.time_info['tz_in'])
             IDA_object.rebase_to_mz_clusters(df_clusters,double_peaks=self.mz_selection['double_peaks'])
             df_data, data_description, data_units, df_P_drift, df_U_drift, df_T_drift, df_P_inlet, masks = IDA_object.get_PTR_data_for_processing()
             
@@ -649,9 +684,14 @@ class TOF_campaign(object):
             df_transmission = pd.read_csv(f_transmission,index_col=0)
             df_stability    = pd.read_csv(f_stability,index_col=0)
             
-            df_calibrations.ctime = pd.to_datetime(df_calibrations.ctime)
-            df_transmission.ctime = pd.to_datetime(df_calibrations.ctime)
-            df_stability.ctime    = pd.to_datetime(df_stability.ctime)
+            try: # attribute tz info
+                df_calibrations.ctime = pd.to_datetime(df_calibrations.ctime).dt.tz_localize(tz=self.time_info['tz_in'])
+                df_transmission.ctime = pd.to_datetime(df_transmission.ctime).dt.tz_localize(tz=self.time_info['tz_in'])
+                df_stability.ctime    = pd.to_datetime(df_stability.ctime).dt.tz_localize(tz=self.time_info['tz_in'])
+            except: # tz info already provided
+                df_calibrations.ctime = pd.to_datetime(df_calibrations.ctime)
+                df_transmission.ctime = pd.to_datetime(df_transmission.ctime)
+                df_stability.ctime    = pd.to_datetime(df_stability.ctime)
             
         else:
             df_calibrations = None
@@ -690,7 +730,7 @@ class TOF_campaign(object):
                 print('--------')
                 continue
             
-            IDA_object = IDA_reader.IDA_data(f_hdf5, **self.data_config)
+            IDA_object = IDA_reader.IDA_data(f_hdf5, **self.data_config, tz_info=self.time_info['tz_in'])
             t_start, t_stop = IDA_object.get_calib_period()
             
             t_start = t_start - dt.timedelta(minutes=35)
@@ -894,6 +934,7 @@ class TOF_campaign(object):
                 continue
             
             df_calibration_breaks[col] = pd.to_datetime(df_calibration_breaks[col],origin=-25569,unit='D')
+            df_calibration_breaks[col] = df_calibration_breaks[col].dt.tz_localize(tz=self.time_info['tz_in'])
         
         
         ######################
@@ -914,17 +955,23 @@ class TOF_campaign(object):
             if t_stop is None:
                 t_stop   = self.df_file_list_info.t_stop.max()
             
-            # process days as a whole
+            if t_start.tzinfo is None:
+                t_start = t_start.replace(tzinfo = self.time_info['tz_in'])
+            if t_stop.tzinfo is None:
+                t_stop = t_stop.replace(tzinfo = self.time_info['tz_in'])
+            
+            # process days as a whole, start is start of the day and stop is end of the day
             start = dt.datetime(year = t_start.year,
                                 month = t_start.month,
                                 day = t_start.day,
+                                tzinfo = self.time_info['tz_in']
                                 )
 
             stop  = dt.datetime(year = t_stop.year,
                                 month = t_stop.month,
                                 day = t_stop.day,
-                                )
-            
+                                tzinfo = self.time_info['tz_in']
+                                )            
             stop = stop + dt.timedelta(hours=24)
             
             n_intervals = np.ceil((stop-start)/self.processing_config['processing_interval'])
@@ -1008,7 +1055,7 @@ class TOF_campaign(object):
                 kw_zero = {key: self.processing_config[key] for key in self.processing_config.keys() if 'zero' in key}
                 
                 PTR_data_object.transform_data_ncr(dict_Xr0,self.processing_config['Xr0_default'])                                                      # Normalise signal
-                PTR_data_object.transform_data_subtract_zero(**kw_zero, mute = True)                                                                                 # Subtract zero
+                PTR_data_object.transform_data_subtract_zero(**kw_zero, mute = True)                                                                    # Subtract zero
                 PTR_data_object.transform_data_trcnrc(df_tr_coeff)                                                                                      # Correct for transmission
                 PTR_data_object.transform_data_VMR(df_cc_coeff,k_reac_mz,k_reac_default,multiplier)                                                     # Transform to VMR, use transmission corrected calibration coefficients when available, otherwise use first principles.
                 
@@ -1029,7 +1076,7 @@ class TOF_campaign(object):
                         dir_o += t_start.strftime('%d') + os.sep
                         check_create_output_dir(dir_o)
                     
-                    tmp.save_output(dir_o, self.name, self.instrument, df_tr_coeff, df_cc_coeff, masks=masks,threshold=output_threshold,file_format=file_format)
+                    tmp.save_output(dir_o, self.name, self.instrument, df_tr_coeff, df_cc_coeff, masks=masks,threshold=output_threshold,file_format=file_format,time_info=self.time_info)
                 
                 del [PTR_data_object]
                 
@@ -1087,7 +1134,7 @@ class PTR_data(object):
         
         self.Tr_PH1_to_PH2 = None
         
-    def get_PTR_data_subsample_time(self, t_start, t_end):
+    def get_PTR_data_subsample_time(self, t_start, t_end, tz_info = None):
         mask = (self.df_data.index >= t_start) & (self.df_data.index < t_end)
         masks = {}
         for key in self.masks.keys():
@@ -1729,16 +1776,16 @@ class PTR_data(object):
         
         return ax
     
-    def get_output_filename(self, key, campaign, instrument, file_format):
+    def get_output_filename(self, time, key, campaign, instrument, file_format):
         outName = ''
         if file_format == 'conf0':
-            outName = '{}_{}_{}_{}.h5'.format(key.split('_')[0],campaign,instrument,self.df_data.index.min().strftime('%Y%m%d-%H%M%S'))
+            outName = '{}_{}_{}_{}.h5'.format(key.split('_')[0],campaign,instrument,time.strftime('%Y%m%d-%H%M%S'))
         elif file_format == 'EC':
-            outName = '{}_{}_{}_{}.h5'.format(key.split('_')[0],campaign,instrument,self.df_data.index.min().strftime('%Y_%m_%d__%H_%M_%S'))
+            outName = '{}_{}_{}_{}.h5'.format(key.split('_')[0],campaign,instrument,time.strftime('%Y_%m_%d__%H_%M_%S'))
             
         return outName
     
-    def save_output(self, dir_o, campaign, instrument, df_tr_coeff, df_cc_coeff, masks = [], threshold = 1, file_format = 'conf0'):
+    def save_output(self, dir_o, campaign, instrument, df_tr_coeff, df_cc_coeff, masks = [], threshold = 1, file_format = 'conf0',time_info=None):
         # Save the processed data
         #########################
         for key in self.masks.keys():
@@ -1755,12 +1802,18 @@ class PTR_data(object):
             
             mz = self.df_data.columns.values
             
+            if time_info is None:
+                time = self.df_data[self.masks[key]].index.values
+            else:
+                time = self.df_data[self.masks[key]].tz_convert(time_info['tz_out']).index
+                out_time = pd.to_datetime(time.min()) # Convert from numpy datetine to dt.datetime
+
             da_data = xr.DataArray(
                 data=self.df_data[self.masks[key]].values,
                 dims=["time","mz"],
                 coords=dict(
                     mz=self.df_data.columns.values,
-                    time=self.df_data[self.masks[key]].index.values,
+                    time=time,
                 ),
                 attrs=dict(
                     description=self.data_description,
@@ -1854,7 +1907,7 @@ class PTR_data(object):
                 ),
             )
             
-            file_name = self.get_output_filename(key, campaign, instrument, file_format)
+            file_name = self.get_output_filename(out_time, key, campaign, instrument, file_format)
             f_output = '{}{}'.format(dir_o, file_name)
             
             print('Writing: {}'.format(f_output))

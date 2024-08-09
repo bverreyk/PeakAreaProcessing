@@ -6,6 +6,7 @@ Created on Mon Feb  5 15:28:03 2024
 """
 import numpy as np
 import pandas as pd
+import datetime as dt
 
 import h5py
 try:
@@ -18,7 +19,7 @@ except:
 ##########################
 class IDA_data(object):
     '''IDA analysis output data object.'''
-    def __init__(self, f_hdf5, dict_misc, dict_reaction):
+    def __init__(self, f_hdf5, dict_misc, dict_reaction, tz_info = dt.timezone.utc):
         self.hdf5 = f_hdf5
         
         self.data = None
@@ -32,6 +33,8 @@ class IDA_data(object):
         self.ptr_reaction = None
         self.dict_misc = dict_misc
         self.dict_reaction = dict_reaction
+        
+        self.tz_info = tz_info
     
     def get_PTR_data_for_processing(self):
         if self.data is None:
@@ -104,6 +107,7 @@ class IDA_data(object):
         # Transform index to datetime
         df['time'] = pd.to_datetime(df.index-719529.0, unit='D')
         df.set_index('time',inplace=True)
+        df.index = df.index.tz_localize(self.tz_info)
         f.close()
         
         return df
@@ -168,7 +172,8 @@ class IDA_data(object):
         times = np.array(times)
         times = times.flatten()
             
-        times = pd.to_datetime(times-719529.0, unit='D')
+        times = pd.to_datetime(times-719529.0, unit='D').tz_localize(self.tz_info)
+        
         f.close()
         
         return times
