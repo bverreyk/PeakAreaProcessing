@@ -31,6 +31,8 @@ except:
     import IDA_reader as IDA_reader
     import mask_routines as msk_r
 
+__version__ = 'v0.0'
+
 ######################
 ## Support toutines ##
 ######################
@@ -1076,7 +1078,7 @@ class TOF_campaign(object):
                         dir_o += t_start.strftime('%d') + os.sep
                         check_create_output_dir(dir_o)
                     
-                    tmp.save_output(dir_o, self.name, self.instrument, df_tr_coeff, df_cc_coeff, masks=masks,threshold=output_threshold,file_format=file_format,time_info=self.time_info)
+                    tmp.save_output(dir_o, self.name, self.instrument, df_tr_coeff, df_cc_coeff, masks=masks,threshold=output_threshold,file_format=file_format,time_info=self.time_info, processing_config=self.processing_config)
                 
                 del [PTR_data_object]
                 
@@ -1785,7 +1787,7 @@ class PTR_data(object):
             
         return outName
     
-    def save_output(self, dir_o, campaign, instrument, df_tr_coeff, df_cc_coeff, masks = [], threshold = 1, file_format = 'conf0',time_info=None):
+    def save_output(self, dir_o, campaign, instrument, df_tr_coeff, df_cc_coeff, masks = [], threshold = 1, file_format = 'conf0', time_info=None, processing_config={}):
         # Save the processed data
         #########################
         for key in self.masks.keys():
@@ -1912,7 +1914,18 @@ class PTR_data(object):
             
             print('Writing: {}'.format(f_output))
         
-            ds_PTRTOF4000 = xr.Dataset({'Signal':da_data,'cluster_min':limits_min,'cluster_max':limits_max,'Xr0':Xr0,'k_reac':k_reac,'multiplier':multiplier,'transmission':transmission,'calibration':calibration})
+            attrs = {}
+            attrs['Peak Area Analysis version'] = __version__
+            attrs['tz_info'] = str(time_info['tz_out'])
+            valid_types = (str, int, float, complex, np.number, np.ndarray, list, tuple) # Valid types for serialization of netcdf output
+            for key, val in processing_config.items():
+                if isinstance(val, valid_types):
+                    attrs[key] = val
+                else:
+                    attrs[key] = str(val)
+            
+            ds_PTRTOF4000 = xr.Dataset({'Signal':da_data,'cluster_min':limits_min,'cluster_max':limits_max,'Xr0':Xr0,'k_reac':k_reac,'multiplier':multiplier,'transmission':transmission,'calibration':calibration},
+                                       attrs=attrs)
             ds_PTRTOF4000.to_netcdf(f_output,engine='h5netcdf')
             
         return None
