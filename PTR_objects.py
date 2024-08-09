@@ -1057,9 +1057,10 @@ class TOF_campaign(object):
                 kw_zero = {key: self.processing_config[key] for key in self.processing_config.keys() if 'zero' in key}
                 
                 PTR_data_object.transform_data_ncr(dict_Xr0,self.processing_config['Xr0_default'])                                                      # Normalise signal
-                PTR_data_object.transform_data_subtract_zero(**kw_zero, mute = True)                                                                    # Subtract zero
                 PTR_data_object.transform_data_trcnrc(df_tr_coeff)                                                                                      # Correct for transmission
                 PTR_data_object.transform_data_VMR(df_cc_coeff,k_reac_mz,k_reac_default,multiplier)                                                     # Transform to VMR, use transmission corrected calibration coefficients when available, otherwise use first principles.
+                PTR_data_object.set_zero(**kw_zero,mute=True)                                                                                           # Set zero dataframe
+                PTR_data_object.transform_data_subtract_zero(**kw_zero, mute = True)                                                                    # Subtract zero
                 
                 # Save the data
                 ###############
@@ -1097,6 +1098,10 @@ class PTR_data(object):
         self.df_data = df_data
         self.data_description = data_description
         self.data_units = data_units
+        
+        self.df_zero = None
+        self.zero_description = None
+        self.zero_units = None
         
         self.df_P_drift = df_P_drift
         self.df_U_drift = df_U_drift
@@ -1147,6 +1152,11 @@ class PTR_data(object):
                                    masks, self.df_clusters)
         
         PTR_data_object.Tr_PH1_to_PH2 = self.Tr_PH1_to_PH2
+        
+        if not self.df_zero is None:
+            PTR_data_object.df_zero = self.df_zero[mask]
+            PTR_data_object.zero_description = self.zero_description
+            PTR_data_object.zero_units = self.zero_units
         
         return PTR_data_object
     
@@ -1226,16 +1236,16 @@ class PTR_data(object):
         else:
             mask_calc_zero = msk_r.get_representative_mask_from_multiple_intervals(self.df_data, self.masks['zero_trimmed'], tdelta_buf_zero, tdelta_avg_zero, mute=mute)
         
-        # Check if the zero measurement last sufficient amount of time
         i_start, i_stop = msk_r.get_start_stop_from_mask(mask_calc_zero)
-        msk = []
-        for i in np.arange(len(i_start)):
-            if self.df_data.index[i_stop[i]] - self.df_data.index[i_start[i]] > tdelta_avg_zero:
-                msk.append(False)
-                continue
-            msk.append(True)
-        i_start = i_start[msk]
-        i_stop = i_stop[msk]
+        # Check if the zero measurement last sufficient amount of time, by definition should be the case
+        #msk = []
+        #for i in np.arange(len(i_start)):
+        #    if self.df_data.index[i_stop[i]] - self.df_data.index[i_start[i]] > tdelta_avg_zero:
+        #        msk.append(False)
+        #        continue
+        #    msk.append(True)
+        #i_start = i_start[msk]
+        #i_stop = i_stop[msk]
         
         if ((mask_calc_zero is None) or
             (mask_calc_zero.sum() == 0)):
@@ -1253,7 +1263,7 @@ class PTR_data(object):
             df_I_zero = df_I_zc.copy()
             df_I_zero[~mask_calc_zero] = np.nan
             for i in np.arange(len(i_start)):
-                df_I_zero.iloc[i_start[i]:i_stop[i]] = df_I_zero.iloc[i_start[i]:i_stop[i]].mean()
+                df_I_zero.iloc[i_start[i]-1:i_stop[i]+1] = df_I_zero.iloc[i_start[i]-1:i_stop[i]+1].mean()
             
             if zero == 'interp':
                 df_I_zero.interpolate(method='values',inplace=True)
@@ -1274,9 +1284,19 @@ class PTR_data(object):
             
         return df_I_zero
 
+    def set_zero(self, tdelta_buf_zero = dt.timedelta(minutes=1), tdelta_avg_zero=dt.timedelta(minutes=5), tdelta_min_zero=dt.timedelta(minutes=20), zero='constant', mute = False):
+        self.df_zero = self.get_zero(tdelta_buf_zero = tdelta_buf_zero, tdelta_avg_zero = tdelta_avg_zero, tdelta_min_zero=tdelta_min_zero, zero = zero, mute = mute)
+        self.zero_description = '{}, zero values'.format(self.data_description)
+        self.zero_units = self.data_units
+        
+        return None
+
     def get_data_zero_corrected(self, tdelta_buf_zero = dt.timedelta(minutes=1), tdelta_avg_zero=dt.timedelta(minutes=5), tdelta_min_zero=dt.timedelta(minutes=20), zero='constant', mute = False):
         # zero correction for the primary ions is not relevant, copy these columns and replace them afterwards
-        df_I_zc = self.df_data.copy() - self.get_zero(tdelta_buf_zero = tdelta_buf_zero, tdelta_avg_zero = tdelta_avg_zero, tdelta_min_zero=tdelta_min_zero, zero = zero, mute = mute)
+        if self.zero_units == self.data_units:
+            df_I_zc = self.df_data.copy() - self.df_zero.copy()
+        else:
+            df_I_zc = self.df_data.copy() - self.get_zero(tdelta_buf_zero = tdelta_buf_zero, tdelta_avg_zero = tdelta_avg_zero, tdelta_min_zero=tdelta_min_zero, zero = zero, mute = mute)
         
         return df_I_zc
         
@@ -1822,7 +1842,7 @@ class PTR_data(object):
                     units=self.data_units,
                 ),
             )
-
+            
             tmp_mask = self.df_clusters.index.isin(mz)
             limits_min = xr.DataArray(
                 data=self.df_clusters[tmp_mask].cluster_min.values,
@@ -1909,6 +1929,23 @@ class PTR_data(object):
                 ),
             )
             
+            data_vars = {'Signal':da_data,'cluster_min':limits_min,'cluster_max':limits_max,'Xr0':Xr0,'k_reac':k_reac,'multiplier':multiplier,'transmission':transmission,'calibration':calibration}
+            if not (self.df_zero is None):
+                da_zero = xr.DataArray(
+                    data=self.df_zero[self.masks[key]].values,
+                    dims=["time","mz"],
+                    coords=dict(
+                        mz=self.df_zero.columns.values,
+                        time=time,
+                    ),
+                    attrs=dict(
+                        description=self.zero_description,
+                        units=self.zero_units,
+                    ),
+                )
+                data_vars['zero'] = da_zero
+
+
             file_name = self.get_output_filename(out_time, key, campaign, instrument, file_format)
             f_output = '{}{}'.format(dir_o, file_name)
             
@@ -1919,12 +1956,13 @@ class PTR_data(object):
             attrs['tz_info'] = str(time_info['tz_out'])
             valid_types = (str, int, float, complex, np.number, np.ndarray, list, tuple) # Valid types for serialization of netcdf output
             for key, val in processing_config.items():
+                key = 'config_{}'.format(key)
                 if isinstance(val, valid_types):
                     attrs[key] = val
                 else:
                     attrs[key] = str(val)
-            
-            ds_PTRTOF4000 = xr.Dataset({'Signal':da_data,'cluster_min':limits_min,'cluster_max':limits_max,'Xr0':Xr0,'k_reac':k_reac,'multiplier':multiplier,'transmission':transmission,'calibration':calibration},
+                    
+            ds_PTRTOF4000 = xr.Dataset(data_vars,
                                        attrs=attrs)
             ds_PTRTOF4000.to_netcdf(f_output,engine='h5netcdf')
             
