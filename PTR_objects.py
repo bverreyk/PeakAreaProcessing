@@ -265,16 +265,17 @@ class TOF_campaign(object):
         
         keywords = []
         if mz_selection['method'] == 'cluster':
-            if not 'algorithm' in mz_selection.keys():
-                print('Specify an algorithm for clustering.')
-                raise ValueError
-            if mz_selection['algorithm'] == 'DBSCAN':
-                keywords.append('eps')
-                keywords.append('min_samples')
-                keywords.append('resolving')
-                keywords.append('add exact')
-                keywords.append('tolerance')
-                keywords.append('double_peaks')
+            if not mz_selection['archived']:
+                if not 'algorithm' in mz_selection.keys():
+                    print('Specify an algorithm for clustering.')
+                    raise ValueError
+                if mz_selection['algorithm'] == 'DBSCAN':
+                    keywords.append('eps')
+                    keywords.append('min_samples')
+                    keywords.append('resolving')
+                    keywords.append('add exact')
+            keywords.append('tolerance')
+            keywords.append('double_peaks')
             
         elif mz_selection['method'] == 'exact':
             keywords.append('mz_exact')
