@@ -26,21 +26,54 @@ def get_ancilarry_PTRT_drift_calib_av(P_drift_calib_av,T_drift_calib_av,U_drift_
 def get_Q_PTRMS_corrected(P_inlet,campaign='Vie_2022'):
     Q_PTRMS = np.nan
     
-    p_offset = 20 # Pressure drop from Catalitic converter, estimate by Niels and to be optimized
-    # Emperical relation between P_inlet en Q_PTRMS from fit Niels Schoon (2022)
-    if campaign == 'BE-Vie_2022':
-        A = 0.25833 # sccm Torr-1
-        B = -92.48601 # sccm
+    if 'simple' in campaign:
+        p_offset = 20 # Pressure drop from Catalitic converter, estimate by Niels and to be optimized
+        # Emperical relation between P_inlet en Q_PTRMS from fit Niels Schoon (2022)
+        if campaign == 'BE-Vie_2022_simple':
+            A = 0.25833 # sccm Torr-1
+            B = -92.48601 # sccm
     
-    elif campaign == 'BE-Vie_2023':
-        A = 0.26419
-        B = -94.48497
-    else:
-        # Default to Q_PTRMS = 80
-        print('Warning, campaign not parameterised to calculate Q_PTRMS, default to = 80.')
-        return 80.
+        elif campaign == 'BE-Vie_2023_simple':
+            A = 0.26419
+            B = -94.48497
+        else:
+            # Default to Q_PTRMS = 80
+            print('Warning, campaign not parameterised to calculate Q_PTRMS, default to = 80.')
+            return 80.
         
-    Q_PTRMS = A*(P_inlet-p_offset)-B
+        Q_PTRMS = A*(P_inlet-p_offset)-B
+
+    else:
+        p_offset = 11.206 # Torr
+        p_inlet = min(P_inlet,620) # Limit upper value p_inlet
+        p_inlet = max(580,p_inlet) # limit lower value p_inlet
+        p = p_inlet - p_offset
+
+        if campaign == 'BE-Vie_2022':
+            a = 0.00000047
+            b = -0.00080535
+            c = 0.68640646
+            d = -162.52933494
+
+        elif campaign == 'BE-Vie_2023':
+            a = 0.00000036
+            b = -0.00059124
+            c = 0.55407574
+            d = -134.90866089
+
+        elif campaign == 'BE-Vie_2024':
+            a = 0.00000048
+            b = -0.00081473
+            c = 0.69321414
+            d = -165.46331409
+
+        else:
+            # Default to Q_PTRMS = 80
+            print('Warning, campaign not parameterised to calculate Q_PTRMS, default to = 80.')
+            return 80.
+
+
+        Q_PTRMS = a*p**3 + b*p**2 + c*p + d
 
 
     return Q_PTRMS
