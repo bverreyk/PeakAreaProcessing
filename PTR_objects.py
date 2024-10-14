@@ -1028,12 +1028,12 @@ class TOF_campaign(object):
                 
                 # Resample the data and trim the data masks
                 ###########################################
-                print('resample and trim')
+                print('Trim and resample')
+                PTR_data_object.trim_masks(self.processing_config['tdelta_trim_start'], self.processing_config['tdelta_trim_stop'])
+
                 if not self.processing_config['acc_interval'] is None:
                     PTR_data_object.resample(self.processing_config['acc_interval'], self.processing_config['origin'], self.processing_config['offset'])
                 
-                PTR_data_object.trim_masks(self.processing_config['tdelta_trim_start'], self.processing_config['tdelta_trim_stop'])
-
                 # Get the ancilarry dataframes/dictironary to process the data
                 ##############################################################
                 print('Get ancillary')
