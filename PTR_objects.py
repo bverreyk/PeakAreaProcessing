@@ -1750,8 +1750,8 @@ class PTR_data(object):
 
         f, ax = plt.subplots(1,1)
         ax = self.plot_masks(mz_col,ax,additional_masks)
-        
-        plt.legend()
+        ax.legend(loc='center left', bbox_to_anchor=(1, 0.5))
+
         plt.title('m/z = {} (cluster at {}), {}'.format(mz, mz_col, self.df_data.index.mean().strftime('%Y-%m-%d')))
         plt.savefig('{}{}.png'.format(dir_o,mz))
         plt.close()
@@ -1763,8 +1763,8 @@ class PTR_data(object):
 
         f, ax = plt.subplots(1,1)
         ax = self.plot_masks(mz_col,ax,additional_masks)
+        ax.legend(loc='center left', bbox_to_anchor=(1, 0.5))
         
-        plt.legend()
         plt.title('m/z = {} (cluster at {}), {}'.format(mz, mz_col, self.df_data.index.mean().strftime('%Y-%m-%d')))
         plt.show()
         plt.close()
