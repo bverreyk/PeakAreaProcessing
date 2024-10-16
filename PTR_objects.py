@@ -1645,7 +1645,7 @@ class PTR_data(object):
         
         Q_calib = calib_r.get_Q_calib_corrected(Q_calib)
         
-        P_inlet = self.df_P_inlet.mean()
+        P_inlet = self.df_P_inlet[mask_calc_calib].mean()
         Q_PTRMS = calib_r.get_Q_PTRMS_corrected(P_inlet, campaign=Q_ptrms_corr)
         Q_zero_air = 800
 
