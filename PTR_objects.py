@@ -681,46 +681,53 @@ class TOF_campaign(object):
         f_calibrations = '{}calibrations.csv'.format(dir_o_cal)
         f_transmission = '{}transmission.csv'.format(dir_o_cal)
         f_stability    = '{}stability.csv'.format(dir_o_cal)
+        f_anc          = '{}anc.csv'.format(dir_o_cal)
         
         if os.path.exists(f_calibrations):
             df_calibrations = pd.read_csv(f_calibrations,index_col=0)
             df_transmission = pd.read_csv(f_transmission,index_col=0)
             df_stability    = pd.read_csv(f_stability,index_col=0)
+            df_anc          = pd.read_csv(f_anc,index_col=0)
             
             try: # attribute tz info
                 df_calibrations.ctime = pd.to_datetime(df_calibrations.ctime).dt.tz_localize(tz=self.time_info['tz_in'])
                 df_transmission.ctime = pd.to_datetime(df_transmission.ctime).dt.tz_localize(tz=self.time_info['tz_in'])
                 df_stability.ctime    = pd.to_datetime(df_stability.ctime).dt.tz_localize(tz=self.time_info['tz_in'])
+                df_anc.ctime    = pd.to_datetime(df_anc.ctime).dt.tz_localize(tz=self.time_info['tz_in'])
             except: # tz info already provided
                 df_calibrations.ctime = pd.to_datetime(df_calibrations.ctime)
                 df_transmission.ctime = pd.to_datetime(df_transmission.ctime)
                 df_stability.ctime    = pd.to_datetime(df_stability.ctime)
+                df_anc.ctime    = pd.to_datetime(df_anc.ctime)
             
         else:
             df_calibrations = None
             df_transmission = None
             df_stability    = None
+            df_anc          = None
             
-        return df_calibrations, df_transmission, df_stability, calibration_ancillary
+        return df_calibrations, df_transmission, df_stability, df_anc, calibration_ancillary
     
-    def archive_calibrations(self, df_calibrations, df_transmission, df_stability):
+    def archive_calibrations(self, df_calibrations, df_transmission, df_stability, df_anc):
         dir_o_cal = self.get_dir_o_calib()
         check_create_output_dir(dir_o_cal)
         
         f_calibrations = '{}calibrations.csv'.format(dir_o_cal)
         f_transmission = '{}transmission.csv'.format(dir_o_cal)
         f_stability    = '{}stability.csv'.format(dir_o_cal)
+        f_anc          = '{}anc.csv'.format(dir_o_cal)
 
         df_calibrations.to_csv(f_calibrations)
         df_transmission.to_csv(f_transmission)
         df_stability.to_csv(f_stability)
+        df_anc.to_csv(f_anc)
         
         return None
     
     def process_calibrations(self):
         print('start process calibrations')
         
-        df_calibrations, df_transmission, df_stability, calibration_ancillary = self.get_archived_calibrations()
+        df_calibrations, df_transmission, df_stability, df_anc, calibration_ancillary = self.get_archived_calibrations()
         
         list_hdf5_calib = self.get_list_hdf5_IDA_calibrations()
         for f_hdf5 in list_hdf5_calib:
@@ -761,29 +768,33 @@ class TOF_campaign(object):
                      ]
             
             dir_o_cal = self.get_dir_o_calib()
-            new_trans, new_calib, new_stability = PTR_data_object.process_calibration(calibration_ancillary, dir_o_cal, **{key: self.processing_config[key] for key in kwords}, Q_ptrms_corr=self.name)
+            new_trans, new_calib, new_stability, new_anc = PTR_data_object.process_calibration(calibration_ancillary, dir_o_cal, **{key: self.processing_config[key] for key in kwords}, Q_ptrms_corr=self.name)
 
             new_trans['file']     = f_hdf5
             new_calib['file']     = f_hdf5
             new_stability['file'] = f_hdf5
+            new_anc['file']       = f_hdf5
             
             # To save the calibration and transmission convert the keys to strings in order to append. If not, small fluctuation in floats result in seperate columns
             new_trans     = pd.DataFrame([{str(key): new_trans[key] for key in new_trans.keys()}])
             new_calib     = pd.DataFrame([{str(key): new_calib[key] for key in new_calib.keys()}])
             new_stability = pd.DataFrame([{str(key): new_stability[key] for key in new_stability.keys()}])
+            new_anc       = pd.DataFrame([{str(key): new_anc[key] for key in new_anc.keys()}])
 
             if df_calibrations is None:
                 df_calibrations = new_calib
                 df_transmission = new_trans
                 df_stability    = new_stability
+                df_anc          = new_anc
                 
             else:
                 df_calibrations = pd.concat([df_calibrations,new_calib],ignore_index=True)
                 df_transmission = pd.concat([df_transmission,new_trans],ignore_index=True)
                 df_stability    = pd.concat([df_stability,new_stability],ignore_index=True)
+                df_anc          = pd.concat([df_anc,new_anc],ignore_index=True)
             
-            self.archive_calibrations(df_calibrations, df_transmission, df_stability)
-        
+            self.archive_calibrations(df_calibrations, df_transmission, df_stability, df_anc)
+
         return None
 
     def get_Xr0_mz(self, df_clusters):
@@ -925,7 +936,7 @@ class TOF_campaign(object):
         # Check, process and archive calibrations
         #########################################
         self.process_calibrations()
-        df_calibrations, df_transmission, df_stability, calibration_ancillary = self.get_archived_calibrations()
+        df_calibrations, df_transmission, df_stability, df_anc, calibration_ancillary = self.get_archived_calibrations()
         
         # Anc: Calibration breaks
         #########################
@@ -1627,6 +1638,7 @@ class PTR_data(object):
         rstd = {}
         cc_coeff = {}
         tr_coeff = {}
+        anc_info = {}
         
         mz_exact = calibration_ancillary.index.values
         k = calibration_ancillary[rate_coeff_col_calib]
@@ -1646,8 +1658,14 @@ class PTR_data(object):
         Q_calib = calib_r.get_Q_calib_corrected(Q_calib)
         
         P_inlet = self.df_P_inlet[mask_calc_calib].mean()
+        
         Q_PTRMS = calib_r.get_Q_PTRMS_corrected(P_inlet, campaign=Q_ptrms_corr)
         Q_zero_air = 800
+        
+        anc_info['ctime'] = ctime.round('1s')
+        anc_info['P_inlet'] = P_inlet
+        anc_info['Q_PTRMS'] = Q_PTRMS
+        anc_info['Q_zero_air'] = Q_zero_air
 
         # Get the Tr_PH1_to_PH2 factor
         ##############################
@@ -1666,6 +1684,9 @@ class PTR_data(object):
         t_reac, N_DT = calib_r.get_ancilarry_PTRT_drift_calib_av(self.df_P_drift.mean(),
                                                                  self.df_T_drift.mean(),
                                                                  self.df_U_drift.mean())
+        
+        anc_info['t_reac'] = t_reac
+        anc_info['N_DT'] = N_DT
                 
         if not self.data_units == 'cps':
             print('Error, units not correct to calculate Tr_PH1_to_PH2')
@@ -1743,7 +1764,8 @@ class PTR_data(object):
         cc_coeff['I_cps_H3O1_21'] = self.df_data[mask_calc_calib][self.mz_col_21].mean()
         cc_coeff['I_cps_H5O2_38'] = self.df_data[mask_calc_calib][self.mz_col_38].mean()
         
-        return tr_coeff, cc_coeff, rstd
+        
+        return tr_coeff, cc_coeff, rstd, anc_info
     
     def save_plot_masks(self, mz, additional_masks = {}, dir_o = './'):
         mz_col = mz_r.select_mz_cluster_from_exact(mz, self.df_clusters, tol = 0.01, mute = True)
