@@ -66,20 +66,39 @@ class IDA_data(object):
                     
             if to_get == 'P_drift':
                 correction = 1.
-                if self.dict_reaction[to_get]['units'] == 'hecto Torr':
-                    correction = 1.e2
+                if not self.dict_reaction[to_get]['units'] == 'mbar':
+                    print('Correction to P_drift units needed')
+                    raise ValueError
                 df_P_drift = self.ptr_reaction[match]*correction
             elif to_get == 'U_drift':
+                if not self.dict_reaction[to_get]['units'] == 'V':
+                    print('Correction to U_drift units needed')
+                    raise ValueError
                 df_U_drift = self.ptr_reaction[match]
             elif to_get == 'T_drift':
+                if not self.dict_reaction[to_get]['units'] == 'degrees C':
+                    print('Correction to T_drift units needed')
+                    raise ValueError
+                
                 df_T_drift = self.ptr_reaction[match]
         
         if self.ptr_misc is None:
             self.init_ptr_misc()
-        df_P_inlet = self.ptr_misc[self.dict_misc['P_inlet']['column']]
+            
+        # correct units
+        correction = 1.
+        if self.dict_misc['P_inlet']['units'] == 'hecto Torr':
+            correction = 1.e2
+            
+        if not self.dict_misc['P_inlet']['units'] in ['hecto Torr','Torr']:
+            print('Expected P_inlet to be in Torr or a unit covered for conversion to Torr in the PAP')
+            raise ValueError
+        
+        df_P_inlet = self.ptr_misc[self.dict_misc['P_inlet']['column']]*correction
+        
         
         masks = self.get_masks()
-                    
+        
         return df_data, data_description, data_units, df_P_drift, df_U_drift, df_T_drift, df_P_inlet, masks
     
     def get_dataframe_from_hdf5(self, group):
