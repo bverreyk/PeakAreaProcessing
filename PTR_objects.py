@@ -800,7 +800,7 @@ class TOF_campaign(object):
     def get_Xr0_mz(self, df_clusters):
         mask = (df_clusters.Xr0 != self.processing_config['Xr0_default'] )
         dict_Xr0 = df_clusters[mask].Xr0.to_dict()
-        dict_Xr0 = {}
+
         return dict_Xr0
     
     def get_k_reac_mz(self, df_clusters):
@@ -1346,6 +1346,8 @@ class PTR_data(object):
         
         df_ncr = (df_ncr.T*norm_uncorrected.values).T
         for c in dict_Xr0.keys():
+            if not c in df_ncr.columns: # No data related to correction in this interval
+                continue
             Xr0 = dict_Xr0[c]
             norm = 1.e6/((self.FPH1*I_cr_21)+(self.FPH2*self.Tr_PH1_to_PH2*I_cr_38*Xr0))
             df_ncr[c] = df_ncr[c]*(norm.values/norm_uncorrected.values)
@@ -1366,8 +1368,8 @@ class PTR_data(object):
             print('Error, normalise signal before correcting for transmission effects')
             raise ValueError
             
-        transmissions =  transmissions.drop(columns=[col for col in transmissions if col not in self.df_data.columns])
-        df_trcncr = self.df_data/transmissions.values
+        transmissions =  transmissions.drop(columns=[col for col in transmissions if col not in self.df_data.columns]).iloc[0] # Select the column of transmissions in order to apply the correction column-wise
+        df_trcncr = self.df_data/transmissions
         
         return df_trcncr
 
@@ -1415,6 +1417,10 @@ class PTR_data(object):
         default_multiplier = default_multiplier*1
 
         self.transform_data_correction(corrections,default_multiplier=default_multiplier)
+        
+        # The transformation of primary ions is not relevant so revert here
+        for mz_col in [self.mz_col_21, self.mz_col_38]:
+            self.df_data[mz_col] = self.df_data[mz_col]*CC_kinetic
         
         self.data_description = 'Mixing Ratio'
         self.data_units = 'ppbv'
@@ -1763,7 +1769,6 @@ class PTR_data(object):
         
         cc_coeff['I_cps_H3O1_21'] = self.df_data[mask_calc_calib][self.mz_col_21].mean()
         cc_coeff['I_cps_H5O2_38'] = self.df_data[mask_calc_calib][self.mz_col_38].mean()
-        
         
         return tr_coeff, cc_coeff, rstd, anc_info
     
