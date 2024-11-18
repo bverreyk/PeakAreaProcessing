@@ -6,25 +6,55 @@ Created on Mon Feb  5 13:16:35 2024
 """
 import numpy as np
 
-def get_ancilarry_PTRT_drift_calib_av(P_drift_calib_av,T_drift_calib_av,U_drift_calib_av,drift_tube_L=9.2):
+def get_ancilarry_PTRT_drift_calib_av(P_drift_calib_av, T_drift_calib_av, U_drift_calib_av, drift_tube_L=9.2):
     '''
     Calculate the reaction time and the number density in the drift tube given the pressure [mbar], temperature [centigrade] and electrical potential [V] in/over the drift tube. Drift tube length is set to 9.2 cm as a default.
     '''
     mu0 = 2.8 # [cm2/Vs]
-        
-    L_DT = drift_tube_L # [cm]
+
+    L_DT = drift_tube_L              # [cm]
     T_DT = 273.15 + T_drift_calib_av # [K]
-    p_DT = P_drift_calib_av # [mbar]
-    U=U_drift_calib_av # [V] 
-    
-    mu= (T_DT/283)*(1013/p_DT)*mu0
-    t_reac=L_DT**2./(mu*U) # [s]
-    N_DT=(p_DT*100/(1.38e-23*T_DT)/1e6) # [molecules/cm3]
-    
+    p_DT = P_drift_calib_av          # [mbar]
+    U    = U_drift_calib_av          # [V]
+
+    mu     = (T_DT/283)*(1013/p_DT)*mu0
+    t_reac = L_DT**2./(mu*U)                # [s]
+    N_DT   = (p_DT*100/(1.38e-23*T_DT)/1e6) # [molecules/cm3]
+
     return t_reac, N_DT
 
-def get_Q_PTRMS_corrected(P_inlet,campaign='Vie_2022'):
-    Q_PTRMS = np.nan
+
+def get_ancilarry_PTRT_drift_calib_av_unc(P_drift_calib_av,P_drift_calib_std,
+                                          T_drift_calib_av,T_drift_calib_std,
+                                          U_drift_calib_av,U_drift_calib_std,
+                                          drift_tube_L=9.2):
+    '''
+    Calculate the reaction time and the number density in the drift tube given the pressure [mbar], temperature [centigrade] and electrical potential [V] in/over the drift tube. Drift tube length is set to 9.2 cm as a default.
+    '''
+    mu0 = 2.8 # [cm2/Vs]
+
+    L_DT = drift_tube_L              # [cm]
+    T_DT = 273.15 + T_drift_calib_av # [K]
+    p_DT = P_drift_calib_av          # [mbar]
+    U    = U_drift_calib_av          # [V]
+
+    T_DT_unc = T_drift_calib_std # [K]
+    p_DT_unc = P_drift_calib_std # [mbar]
+    U_unc    = U_drift_calib_std # [V] 
+
+    mu     = (T_DT/283)*(1013/p_DT)*mu0
+    t_reac = L_DT**2./(mu*U)                # [s]
+    N_DT   = (p_DT*100/(1.38e-23*T_DT)/1e6) # [molecules/cm3]
+
+    mu_unc     = 1013/283*mu0*np.sqrt((T_DT_unc/T_DT)**2.+(p_DT_unc/p_DT)**2.)*mu
+    t_reac_unc = L_DT**2.*t_reac*np.sqrt((mu_unc/mu)**2.+(U_unc/U)**2.)
+    N_DT_unc   = 100/1.38e-23/1e6*N_DT*np.sqrt((p_DT_unc/p_DT)**2.+(T_DT_unc/T_DT)**2.)
+    
+    return t_reac, t_reac_unc, N_DT, N_DT_unc
+
+def get_Q_PTRMS_corrected(P_inlet, P_inlet_unc, campaign='Vie_2022'):
+    Q_PTRMS     = np.nan
+    Q_PTRMS_unc = np.nan
     
     if 'simple' in campaign:
         p_offset = 20 # Pressure drop from Catalitic converter, estimate by Niels and to be optimized
@@ -36,18 +66,13 @@ def get_Q_PTRMS_corrected(P_inlet,campaign='Vie_2022'):
         elif campaign == 'BE-Vie_2023_simple':
             A = 0.26419
             B = -94.48497
-        else:
-            # Default to Q_PTRMS = 80
-            print('Warning, campaign not parameterised to calculate Q_PTRMS, default to = 80.')
-            return 80.
         
         Q_PTRMS = A*(P_inlet-p_offset)-B
-
+        Q_PTRMS_unc = A*P_inlet_unc
+        
     else:
-        p_offset = 11.206 # Torr
-        p_inlet = min(P_inlet,620) # Limit upper value p_inlet
-        p_inlet = max(580,p_inlet) # limit lower value p_inlet
-        p = p_inlet - p_offset
+        P_inlet = min(P_inlet,620) # Limit upper value p_inlet
+        P_inlet = max(580,P_inlet) # limit lower value p_inlet
 
         if campaign == 'BE-Vie_2022':
             a = 0.00000047
@@ -67,19 +92,20 @@ def get_Q_PTRMS_corrected(P_inlet,campaign='Vie_2022'):
             c = 0.69321414
             d = -165.46331409
 
-        else:
-            # Default to Q_PTRMS = 80
-            print('Warning, campaign not parameterised to calculate Q_PTRMS, default to = 80.')
-            return 80.
+        Q_PTRMS = a*P_inlet**3 + b*P_inlet**2 + c*P_inlet + d
+        Q_PTRMS_unc = ((3*a*P_inlet**2)+(2*b*P_inlet)+c)*P_inlet_unc
 
+    if np.isnan(Q_PTRMS):
+        # Default to Q_PTRMS = 80
+        print('Warning, campaign not parameterised to calculate Q_PTRMS, default to = 80 (unc 8).')
+        Q_PTRMS, Q_PTRMS_unc = 80, 8
 
-        Q_PTRMS = a*p**3 + b*p**2 + c*p + d
-
-
-    return Q_PTRMS
+    return Q_PTRMS, Q_PTRMS_unc
 
 def get_Q_calib_corrected(Q_calib,campaign='RTG_BE-Vie_2022'):
-    if campaign == 'RTG_BE-Vie_2022':
+    if campaign in ('RTG_BE-Vie_2022',
+                    'RTG_BE-Vie_2023',
+                    'RTG_BE-Vie_2024'):
         # Correction as the flow meters are using different reference points (0 deg centigrade vs 20)
         Q_calib = Q_calib*(273.16+20)/273.16
     return Q_calib
@@ -93,6 +119,25 @@ def get_mixingRatio_driftTube_Calib(Q_calib,Q_PTRMS,Q_zero_air,MR_bottle):
     # Q_PTRMS: flow entering the PTR instrument
     # MR_bottle: Mixing ratio of the compound in the calibration bottle        
     return (Q_calib/(Q_PTRMS+Q_zero_air))*MR_bottle
+
+def get_mixingRatio_driftTube_Calib_unc(Q_calib,Q_calib_unc,Q_PTRMS,Q_PTRMS_unc,Q_zero_air,Q_zero_air_unc,MR_bottle,MR_bottle_unc):
+    '''
+    Calculate the expected mixing ratio [ppbv] and uncertainty (1 sigma [ppbv]) of the calibration gass in the drift tube.
+    '''
+    # Q_calib: Flow of calibration gass [slm]
+    # Q_zero_air: flow from catalytic converter to dilute the calibration mixture
+    # Q_PTRMS: flow entering the PTR instrument
+    # MR_bottle: Mixing ratio of the compound in the calibration bottle
+    S = (Q_PTRMS+Q_zero_air)
+    S_unc = np.sqrt(Q_PTRMS_unc**2.+Q_zero_air_unc**2.)
+    
+    F = Q_calib/S
+    F_unc = F*np.sqrt((Q_calib_unc/Q_calib)**2.+(S_unc/S)**2.)
+    
+    MR_DT = F*MR_bottle
+    MR_DT_unc = MR_DT*np.sqrt((F_unc/F)**2.+(MR_bottle_unc/MR_bottle)**2.)
+    
+    return MR_DT, MR_DT_unc
 
 def get_normalisedCountRate_df(df, mz_col_21, mz_col_38, Tr_PH1_to_PH2, FPH1 = 500, FPH2 = 624.2, XR0={},Xr0_default=1.):
     '''

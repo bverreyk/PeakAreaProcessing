@@ -1634,7 +1634,11 @@ class PTR_data(object):
                              tdelta_buf_zero=dt.timedelta(minutes=1),tdelta_avg_zero=dt.timedelta(minutes=5),tdelta_min_zero=dt.timedelta(minutes=20),
                              tdelta_buf_calib=dt.timedelta(minutes=1),tdelta_avg_calib=dt.timedelta(minutes=5),
                              tdelta_stability=dt.timedelta(minutes=60), zero = 'constant',
-                             rate_coeff_col_calib = '', dict_Xr0={}, Xr0_default=1., Q_calib = 10, Q_ptrms_corr = 'BE-Vie_2022'):
+                             rate_coeff_col_calib = '', dict_Xr0={}, Xr0_default=1., 
+                             Q_zero_air = 800, Q_zero_air_unc = 10, # sccm, 1% of full scale (0-1000 sccm)
+                             Q_calib = 10, Q_calib_unc = 0.1,      # unc = 1% stated uncertainty on set point 
+                             Q_ptrms_corr = 'BE-Vie_2022'):
+        
         rstd = {}
         cc_coeff = {}
         tr_coeff = {}
@@ -1643,6 +1647,7 @@ class PTR_data(object):
         mz_exact = calibration_ancillary.index.values
         k = calibration_ancillary[rate_coeff_col_calib]
         mixrat_bottle = calibration_ancillary['mixrat_bottle [ppbv]']
+        mixrat_bottle_unc = calibration_ancillary['1_sigma [ppbv]']
         fr = calibration_ancillary['fr']
         
         # Indicate if we use this signal for transmission: i.e., no fragmentation expected
@@ -1655,18 +1660,25 @@ class PTR_data(object):
         
         ctime = self.df_data.index[mask_calc_calib].mean()
         
-        Q_calib = calib_r.get_Q_calib_corrected(Q_calib)
+        Q_calib     = calib_r.get_Q_calib_corrected(Q_calib)      # Correction from reference point of flow meter
+        Q_calib_unc = calib_r.get_Q_calib_corrected(Q_calib_unc)  # Correction from reference point of flow meter
         
         P_inlet = self.df_P_inlet[mask_calc_calib].mean()
+        P_inlet_unc = self.df_P_inlet[mask_calc_calib].std()
+        P_inlet_unc = max(P_inlet_unc,P_inlet*0.001) # For corrected axes, there is no variability so make sure there is some error associated with this variable here
         
-        Q_PTRMS = calib_r.get_Q_PTRMS_corrected(P_inlet, campaign=Q_ptrms_corr)
-        Q_zero_air = 800
+        Q_PTRMS, Q_PTRMS_unc = calib_r.get_Q_PTRMS_corrected(P_inlet, P_inlet_unc, campaign=Q_ptrms_corr)
         
         anc_info['ctime'] = ctime.round('1s')
-        anc_info['P_inlet'] = P_inlet
-        anc_info['Q_PTRMS'] = Q_PTRMS
-        anc_info['Q_zero_air'] = Q_zero_air
-
+        anc_info['P_inlet']        = P_inlet
+        anc_info['P_inlet_unc']    = P_inlet_unc
+        anc_info['Q_PTRMS']        = Q_PTRMS
+        anc_info['Q_PTRMS_unc']    = Q_PTRMS_unc
+        anc_info['Q_calib']        = Q_calib
+        anc_info['Q_calib_unc']    = Q_calib_unc
+        anc_info['Q_zero_air']     = Q_zero_air
+        anc_info['Q_zero_air_unc'] = Q_zero_air_unc
+        
         # Get the Tr_PH1_to_PH2 factor
         ##############################
         anc = []
@@ -1681,12 +1693,15 @@ class PTR_data(object):
         
             anc.append(mz_anc)
         
-        t_reac, N_DT = calib_r.get_ancilarry_PTRT_drift_calib_av(self.df_P_drift.mean(),
-                                                                 self.df_T_drift.mean(),
-                                                                 self.df_U_drift.mean())
+        t_reac, t_reac_unc, N_DT, N_DT_unc = calib_r.get_ancilarry_PTRT_drift_calib_av_unc(self.df_P_drift.mean(),self.df_P_drift.std(),
+                                                                                           self.df_T_drift.mean(),self.df_T_drift.std(),
+                                                                                           self.df_U_drift.mean(),self.df_U_drift.std())
         
-        anc_info['t_reac'] = t_reac
-        anc_info['N_DT'] = N_DT
+        anc_info['t_reac']     = t_reac
+        anc_info['N_DT']       = N_DT
+        
+        anc_info['t_reac_unc'] = t_reac_unc
+        anc_info['N_DT_unc']   = N_DT_unc
                 
         if not self.data_units == 'cps':
             print('Error, units not correct to calculate Tr_PH1_to_PH2')
@@ -1722,7 +1737,8 @@ class PTR_data(object):
                 tr_coeff[mz] = np.nan
                 continue
             
-            MR_DT = calib_r.get_mixingRatio_driftTube_Calib(Q_calib,Q_PTRMS,Q_zero_air,mixrat_bottle[mz])
+            MR_DT = calib_r.get_mixingRatio_driftTube_Calib(Q_calib, Q_PTRMS, Q_zero_air, mixrat_bottle[mz])
+            
             Tr = calib_r.get_transmissionCoefficient(self.df_data, mask_calc_zero, mask_calc_calib,  mz_col,  MR_DT,  k[mz],  fr[mz], N_DT, t_reac)
             
             tr_coeff[mz] = Tr
@@ -1739,9 +1755,12 @@ class PTR_data(object):
             mz_col = mz_r.select_mz_cluster_from_exact(mz, self.df_clusters, tol = 0.01, mute = True)
             if mz_col in self.df_data.keys():
                 signal = self.df_data[mask_calc_calib][mz_col].mean()
+                ## TODO: signal_unc calculated from distribution resampled averages, implement the value using the sqrt of counts!!
+                signal_unc = self.df_data[mask_calc_calib][mz_col].std()
             else:
                 print('WARNING NO SIGNAL FOUND FOR MZ {} IN IDA FILE WITH CALIBRATION'.format(mz))
                 signal = np.nan
+                signal_unc = np.nan
             
             # If the mz value is not in the calibration standard, continue to next loop
             if mixrat_bottle[mz] == 1:
@@ -1752,10 +1771,18 @@ class PTR_data(object):
             check_create_output_dir(dir_o_calibration)
             self.save_plot_masks(mz,additional_masks = {'zero calc':mask_calc_zero,'mask stability check':mask_check_stability,'calib calc':mask_calc_calib}, dir_o = dir_o_calibration)
             
-            MR_DT = calib_r.get_mixingRatio_driftTube_Calib(Q_calib,Q_PTRMS,Q_zero_air,mixrat_bottle[mz])
+            MR_DT, MR_DT_unc = calib_r.get_mixingRatio_driftTube_Calib_unc(Q_calib, Q_calib_unc,
+                                                                           Q_PTRMS, Q_PTRMS_unc,
+                                                                           Q_zero_air, Q_zero_air_unc,
+                                                                           mixrat_bottle[mz], mixrat_bottle_unc[mz])
+            anc_info['MR_DT_mz_{}'.format(mz)] = MR_DT
+            anc_info['MR_DT_unc_mz_{}'.format(mz)] = MR_DT_unc
+            
             CC = signal/MR_DT
+            CC_unc = CC*np.sqrt((signal_unc/signal)**2.+(MR_DT_unc/MR_DT)**2.)
             
             cc_coeff[mz] = CC
+            cc_coeff['{}_unc'.format(mz)] = CC_unc
         
         tr_coeff['ctime'] = ctime.round('1s')
         cc_coeff['ctime'] = ctime.round('1s')

@@ -29,7 +29,7 @@ class IDA_data(object):
         if not any([label in ('masks','P_inlet') for label in dict_misc.keys()]):
             print('dict_misc not containing all required labels')
             raise ValueError
-            
+
         self.ptr_reaction = None
         self.dict_misc = dict_misc
         self.dict_reaction = dict_reaction
