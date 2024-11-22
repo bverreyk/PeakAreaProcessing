@@ -1508,6 +1508,9 @@ class PTR_data(object):
         self.data_description = 'Normalised Ion count'
         self.data_units = 'ncps'
         
+        self.prec_description = 'Normalised Ion count'
+        self.prec_units = 'ncps'
+
         return None
 
     
@@ -1526,6 +1529,10 @@ class PTR_data(object):
         self.df_data, self.df_prec = self.get_data_trcnrc(transmissions)
         self.data_description = 'Transmission corrected normalised ion count'
         self.data_units = 'trcncps'
+        
+        self.prec_description = 'Transmission corrected normalised ion count'
+        self.prec_units = 'trcncps'
+
         return None
     
     def transform_data_VMR(self, df_calibration, k_reac_mz = {}, k_reac_default = 2, multiplier={}):
@@ -1573,6 +1580,9 @@ class PTR_data(object):
         
         self.data_description = 'Mixing Ratio'
         self.data_units = 'ppbv'
+        
+        self.prec_description = 'Mixing Ratio'
+        self.prec_units = 'ppbv'
         
         return None
 
@@ -1668,7 +1678,7 @@ class PTR_data(object):
     
         self.df_data[mz_col][mask_zero].plot(c='k',linewidth=0,marker='.',markersize=2,ax=ax,label='inferred zero')
         self.df_data[mz_col][mask_calib].plot(c='g',linewidth=0,marker='.',markersize=2,ax=ax,label='inferred calib')
-    
+        
         self.df_data[mz_col][mask_calc_zero | mask_calc_calib].plot(c='goldenrod',linewidth=0,marker='.',markersize=2,ax=ax,label='avg zero/calib')
         ax.set_ylabel('CR mz = {}'.format(mz_exact_infer_masks))
     
