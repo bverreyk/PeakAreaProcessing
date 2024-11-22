@@ -265,17 +265,25 @@ def get_representative_mask(df, dt_begin, dt_end, tdelta_buf, tdelta_avg, mute =
     
     return mask
 
-def get_representative_mask_from_multiple_intervals(df,mask,tdelta_buf,tdelta_avg, mute = False):
+def get_representative_mask_from_multiple_intervals(df,mask,tdelta_buf,tdelta_avg,tdelta_min,mute = False):
     starts, stops = get_start_stop_from_mask(mask)
     
     mask_calc = None
     for i in np.arange(len(starts)):
         dt_begin = df.index[starts[i]]
         dt_end = df.index[stops[i]]
+        if dt_end - dt_begin < tdelta_min: # interval not sufficiently long to look for representative interval
+            continue
+        
         tmp = get_representative_mask(df, dt_begin, dt_end, tdelta_buf, tdelta_avg, mute = mute)
         if mask_calc is None:
             mask_calc = tmp
+        
         mask_calc = (mask_calc) | tmp
+
+    if mask_calc is None:
+        print('No representative intervals identified in the dataframe.')
+        mask_calc = np.zeros(len(df.index),dtype=bool)
 
     return mask_calc
 

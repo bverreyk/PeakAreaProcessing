@@ -98,7 +98,7 @@ class TOF_campaign(object):
                  data_config, processing_config,
                  year = None, instrument='TOF4000',
                  calibrations_analysis='integrated',
-                 mz_selection={'method':None},time_info={'IDA_output':'UTC','PAP_output':'UTC+1'}):
+                 mz_selection={'method':None},time_info={'IDA_output':'UTC','PAP_output':'UTC+1','anc_in':'UTC+1'}):
         '''
         name - string
           Contains the name of the analysis/campaign, the first subdirectory for 
@@ -297,6 +297,7 @@ class TOF_campaign(object):
         
         time_info['tz_in'] = get_timezone(time_info['IDA_output'])
         time_info['tz_out'] = get_timezone(time_info['PAP_output'])
+        time_info['tz_anc_in'] = get_timezone(time_info['anc_in'])
         
         self.time_info = time_info
 
@@ -718,11 +719,7 @@ class TOF_campaign(object):
                 if col in ancillary:
                     continue
                 
-                if (('_unc' in col) or
-                    ('_acc' in col) or
-                    ('_prec' in col)
-                    ):
-
+                if (('_racc' in col) or ('_prec' in col)):
                     mz_unc_columns.append(col)
                     
                 else:
@@ -758,19 +755,19 @@ class TOF_campaign(object):
         return None
     
     def process_calibrations(self):
-        print('start process calibrations')
+        print('start process calibrations, {}'.format(self.calibrations_analysis))
         
         df_calibrations, df_calibrations_unc, df_transmission, df_stability, df_anc, calibration_ancillary = self.get_archived_calibrations()
         
         list_hdf5_calib = self.get_list_hdf5_IDA_calibrations()
         for f_hdf5 in list_hdf5_calib:
+            print('--------')
+            print('Process calibration')
+            print(f_hdf5)
             if ((not df_calibrations is None) and
                 (f_hdf5 in df_calibrations.file.values)
                 ):
-                print('--------')
-                print(f_hdf5)
-                print('already processed')
-                print('--------')
+                print('--already processed--')
                 continue
             
             IDA_object = IDA_reader.IDA_data(f_hdf5, **self.data_config, tz_info=self.time_info['tz_in'])
@@ -780,11 +777,9 @@ class TOF_campaign(object):
             t_stop  = t_stop + dt.timedelta(minutes=15)
             
             if self.calibrations_analysis == 'integrated':
-                print('integrated')
                 PTR_data_object = self.get_PTR_data(t_start, t_stop)
             
             elif self.calibrations_analysis == 'dedicated':
-                print('dedicated')
                 IDA_object.rebase_to_mz_clusters(self.df_clusters,double_peaks=self.mz_selection['double_peaks'])
                 df_data, data_description, data_units, sst, sst_units, df_P_drift, df_U_drift, df_T_drift, df_P_inlet, masks = IDA_object.get_PTR_data_for_processing()
                 PTR_data_object = PTR_data(df_data, data_description, data_units, sst, sst_units, df_P_drift, df_U_drift, df_T_drift, df_P_inlet, masks, self.df_clusters)
@@ -829,6 +824,8 @@ class TOF_campaign(object):
                 df_anc          = pd.concat([df_anc,new_anc],ignore_index=True)
             
             self.archive_calibrations(df_calibrations, df_transmission, df_stability, df_anc)
+            
+            print('--done--')
 
         return None
 
@@ -985,7 +982,7 @@ class TOF_campaign(object):
                 continue
             
             df_calibration_breaks[col] = pd.to_datetime(df_calibration_breaks[col],origin=-25569,unit='D')
-            df_calibration_breaks[col] = df_calibration_breaks[col].dt.tz_localize(tz=self.time_info['tz_in'])
+            df_calibration_breaks[col] = df_calibration_breaks[col].dt.tz_localize(tz=self.time_info['tz_anc_in'])
         
         
         ######################
@@ -1169,6 +1166,11 @@ class PTR_data(object):
         self.prec_description = None
         self.prec_units = None
 
+        self.df_racc = None
+        self.df_acc = None
+        self.acc_description = None
+        self.acc_units = None
+
         self.df_P_drift = df_P_drift
         self.df_U_drift = df_U_drift
         self.df_T_drift = df_T_drift
@@ -1342,9 +1344,9 @@ class PTR_data(object):
     def get_zero(self, tdelta_buf_zero = dt.timedelta(minutes=1), tdelta_avg_zero=dt.timedelta(minutes=5), tdelta_min_zero=dt.timedelta(minutes=20), zero='constant', mute = False):
         if not 'zero_trimmed' in self.masks.keys():
             print('Warning, untrimmed zero mask used to infer zero measurements.')
-            mask_calc_zero = msk_r.get_representative_mask_from_multiple_intervals(self.df_data, self.masks['zero'], tdelta_buf_zero, tdelta_avg_zero, mute=mute)
+            mask_calc_zero = msk_r.get_representative_mask_from_multiple_intervals(self.df_data, self.masks['zero'], tdelta_buf_zero, tdelta_avg_zero, tdelta_min_zero, mute=mute)
         else:
-            mask_calc_zero = msk_r.get_representative_mask_from_multiple_intervals(self.df_data, self.masks['zero_trimmed'], tdelta_buf_zero, tdelta_avg_zero, mute=mute)
+            mask_calc_zero = msk_r.get_representative_mask_from_multiple_intervals(self.df_data, self.masks['zero_trimmed'], tdelta_buf_zero, tdelta_avg_zero, tdelta_min_zero, mute=mute)
         
         i_start, i_stop = msk_r.get_start_stop_from_mask(mask_calc_zero)
         
@@ -1587,8 +1589,8 @@ class PTR_data(object):
         return None
 
     def get_calib_calc_masks(self, mz_exact_infer_masks=59.049,
-                             tdelta_buf_zero=dt.timedelta(minutes=1),tdelta_avg_zero=dt.timedelta(minutes=5),
-                             tdelta_buf_calib=dt.timedelta(minutes=1),tdelta_avg_calib=dt.timedelta(minutes=5),
+                             tdelta_buf_zero=dt.timedelta(minutes=1),tdelta_avg_zero=dt.timedelta(minutes=5),tdelta_min_zero=dt.timedelta(minutes=20),
+                             tdelta_buf_calib=dt.timedelta(minutes=1),tdelta_avg_calib=dt.timedelta(minutes=5),tdelta_min_calib=dt.timedelta(minutes=70),
                              tdelta_stability=dt.timedelta(minutes=60),
                              ):
         
@@ -1614,13 +1616,13 @@ class PTR_data(object):
             self.masks['calib'] = mask_calib
 
         # Zero interval averaging mask
-        mask_calc_zero = msk_r.get_representative_mask_from_multiple_intervals(self.df_data, self.masks['zero'], tdelta_buf_zero, tdelta_avg_zero)
+        mask_calc_zero = msk_r.get_representative_mask_from_multiple_intervals(self.df_data, self.masks['zero'], tdelta_buf_zero,  tdelta_avg_zero, tdelta_min_zero)
     
         # Calibration interval averaging mask
-        mask_calc_calib = msk_r.get_representative_mask_from_multiple_intervals(self.df_data, self.masks['calib'], tdelta_buf_calib, tdelta_avg_calib)
+        mask_calc_calib = msk_r.get_representative_mask_from_multiple_intervals(self.df_data, self.masks['calib'], tdelta_buf_calib, tdelta_avg_calib, tdelta_min_calib)
     
         # Check stability mask
-        mask_check_stability = msk_r.get_representative_mask_from_multiple_intervals(self.df_data, self.masks['calib'], tdelta_buf_calib, tdelta_stability)
+        mask_check_stability = msk_r.get_representative_mask_from_multiple_intervals(self.df_data, self.masks['calib'], tdelta_buf_calib, tdelta_stability, tdelta_min_calib)
         
         if (((self.masks['invalid'] & mask_calc_zero).sum() >= 1) or 
             ((self.masks['invalid'] & mask_calc_calib).sum() >= 1)):
@@ -1631,9 +1633,9 @@ class PTR_data(object):
         return mask_calc_zero, mask_calc_calib, mask_check_stability
 
     def process_RH_calibration(self, calibration_ancillary, dir_o_cal,
-                             tdelta_buf_zero=dt.timedelta(minutes=1),tdelta_avg_zero=dt.timedelta(minutes=5),
-                             tdelta_buf_calib=dt.timedelta(minutes=1),tdelta_avg_calib=dt.timedelta(minutes=5),
-                             tdelta_stability=dt.timedelta(minutes=60), zero = 'constant',
+                             tdelta_buf_zero=dt.timedelta(minutes=1),tdelta_avg_zero=dt.timedelta(minutes=5),tdelta_min_zero=dt.timedelta(minutes=20),
+                             tdelta_buf_calib=dt.timedelta(minutes=1),tdelta_avg_calib=dt.timedelta(minutes=5),tdelta_min_calib=dt.timedelta(minutes=70),
+                             tdelta_stability=dt.timedelta(minutes=60), zero = 'ffill',
                              rate_coeff_col_calib = '', Xr0_default = 1,
                              Q_calib = 10, Q_zero_air = 800, mz_exact_infer_masks = 59.049,
                              Q_ptrms_corr = 'BE-Vie_2022',
@@ -1663,8 +1665,8 @@ class PTR_data(object):
         self.masks['zero'] = mask_zero
         
         # Get averaging masks
-        mask_calc_zero = msk_r.get_representative_mask_from_multiple_intervals(self.df_data,mask_zero,tdelta_buf_zero,tdelta_avg_zero)
-        mask_calc_calib = msk_r.get_representative_mask_from_multiple_intervals(self.df_data,mask_calib,tdelta_buf_calib,tdelta_avg_calib)
+        mask_calc_zero = msk_r.get_representative_mask_from_multiple_intervals(self.df_data,mask_zero,tdelta_buf_zero,tdelta_avg_zero, tdelta_min_zero)
+        mask_calc_calib = msk_r.get_representative_mask_from_multiple_intervals(self.df_data,mask_calib,tdelta_buf_calib,tdelta_avg_calib, tdelta_min_calib)
 
         # Plot the masks as a way to make sure that everything has gone according to expectations
         f, ax = plt.subplots(1,1)
@@ -1798,10 +1800,10 @@ class PTR_data(object):
     def process_calibration(self, calibration_ancillary, dir_o_cal,
                              tdelta_buf_zero=dt.timedelta(minutes=1),tdelta_avg_zero=dt.timedelta(minutes=5),tdelta_min_zero=dt.timedelta(minutes=20),
                              tdelta_buf_calib=dt.timedelta(minutes=1),tdelta_avg_calib=dt.timedelta(minutes=5),
-                             tdelta_stability=dt.timedelta(minutes=60), zero = 'constant',
+                             tdelta_stability=dt.timedelta(minutes=60), zero = 'ffill',
                              rate_coeff_col_calib = '', dict_Xr0={}, Xr0_default=1., 
                              Q_zero_air = 800, Q_zero_air_unc = 10, # sccm, 1% of full scale (0-1000 sccm)
-                             Q_calib = 10, Q_calib_unc = 0.1,      # unc = 1% stated uncertainty on set point 
+                             Q_calib = 10, Q_calib_unc = 0.1,       # unc = 1% stated uncertainty on set point 
                              Q_ptrms_corr = 'BE-Vie_2022'):
         
         rstd = {}
@@ -1819,6 +1821,9 @@ class PTR_data(object):
         Tr_selection = calibration_ancillary['Tr_selection']
         Tr_selection = calibration_ancillary[Tr_selection].index.values
         
+        # Assume we don't have to trim the masks due to the buffers for the zero and calibration measurements
+        # we do apply the trimming here explicitely to supress warnings when calculating the representativity masks
+        self.trim_masks(dt.timedelta(seconds=0), dt.timedelta(seconds=0)) 
         mask_calc_zero, mask_calc_calib, mask_check_stability = self.get_calib_calc_masks(tdelta_buf_zero=tdelta_buf_zero,tdelta_avg_zero=tdelta_avg_zero,
                                                                                           tdelta_buf_calib=tdelta_buf_calib,tdelta_avg_calib=tdelta_avg_calib,
                                                                                           tdelta_stability=tdelta_stability)
@@ -1941,17 +1946,15 @@ class PTR_data(object):
                                                                            Q_zero_air, Q_zero_air_unc,
                                                                            mixrat_bottle[mz], mixrat_bottle_unc[mz])
             anc_info['MR_DT_mz_{}'.format(mz)] = MR_DT
-            anc_info['MR_DT_unc_mz_{}'.format(mz)] = MR_DT_unc
+            anc_info['MR_DT_acc_mz_{}'.format(mz)] = MR_DT_unc
             
             CC = signal/MR_DT
-            CC_unc  = CC*np.sqrt((signal_unc/signal)**2.+(MR_DT_unc/MR_DT)**2.)
-            CC_acc  = MR_DT_unc
+            CC_racc = MR_DT_unc/MR_DT*100.
             CC_prec = signal_unc
             
             cc_coeff[mz] = CC
-            cc_coeff['{}_unc'.format(mz)]  = CC_unc
-            cc_coeff['{}_acc'.format(mz)]  = CC_acc
-            cc_coeff['{}_prec'.format(mz)] = CC_prec
+            cc_coeff['{}_racc [%]'.format(mz)] = CC_racc
+            cc_coeff['{}_prec [{} ppbv-1]'.format(mz, self.data_units)] = CC_prec
         
         tr_coeff['ctime'] = ctime.round('1s')
         cc_coeff['ctime'] = ctime.round('1s')
