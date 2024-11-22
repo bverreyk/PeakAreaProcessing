@@ -29,7 +29,9 @@ def get_ancilarry_PTRT_drift_calib_av_unc(P_drift_calib_av,P_drift_calib_std,
                                           U_drift_calib_av,U_drift_calib_std,
                                           drift_tube_L=9.2):
     '''
-    Calculate the reaction time and the number density in the drift tube given the pressure [mbar], temperature [centigrade] and electrical potential [V] in/over the drift tube. Drift tube length is set to 9.2 cm as a default.
+    Calculate the reaction time and the number density in the drift tube given the pressure [mbar], 
+    temperature [centigrade] and electrical potential [V] in/over the drift tube. 
+    Drift tube length is set to 9.2 cm as a default.
     '''
     mu0 = 2.8 # [cm2/Vs]
 
