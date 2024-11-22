@@ -1160,6 +1160,7 @@ class PTR_data(object):
         self.df_absolute_counts = self.get_data_totalcounts()
 
         self.df_zero = None
+        self.df_zero_prec = None
         self.zero_description = None
         self.zero_units = None
         
@@ -1346,15 +1347,6 @@ class PTR_data(object):
             mask_calc_zero = msk_r.get_representative_mask_from_multiple_intervals(self.df_data, self.masks['zero_trimmed'], tdelta_buf_zero, tdelta_avg_zero, mute=mute)
         
         i_start, i_stop = msk_r.get_start_stop_from_mask(mask_calc_zero)
-        # Check if the zero measurement last sufficient amount of time, by definition should be the case
-        #msk = []
-        #for i in np.arange(len(i_start)):
-        #    if self.df_data.index[i_stop[i]] - self.df_data.index[i_start[i]] > tdelta_avg_zero:
-        #        msk.append(False)
-        #        continue
-        #    msk.append(True)
-        #i_start = i_start[msk]
-        #i_stop = i_stop[msk]
         
         if ((mask_calc_zero is None) or
             (mask_calc_zero.sum() == 0)):
@@ -1362,55 +1354,81 @@ class PTR_data(object):
             raise ValueError
         
         # zero correction for the primary ions is not applicable
-        df_I_zc = self.df_data.copy()
-        df_I_zc[[self.mz_col_21,self.mz_col_38]] = 0
+        df_I_tmp = self.df_data.copy()
+        df_I_tmp[[self.mz_col_21,self.mz_col_38]] = 0
+        
+        df_I_tmp_prec = self.df_prec.copy()
+        df_I_tmp_prec[[self.mz_col_21,self.mz_col_38]] = 0
         
         if zero == 'constant':
-            df_I_zero = df_I_zc[mask_calc_zero].mean()
+            print('Zero correction constant: precision from std on all zero measuremnts in processed data sample.')
+            df_I_zero = df_I_tmp[mask_calc_zero].mean()
+            df_I_zero_prec = df_I_tmp[mask_calc_zero].std()
         
         else:
-            df_I_zero = df_I_zc.copy()
+            df_I_zero = df_I_tmp.copy()
             df_I_zero[~mask_calc_zero] = np.nan
+            
+            df_I_zero_prec = df_I_tmp_prec.copy()
+            df_I_zero_prec[~mask_calc_zero] = np.nan
             for i in np.arange(len(i_start)):
                 df_I_zero.iloc[i_start[i]-1:i_stop[i]+1] = df_I_zero.iloc[i_start[i]-1:i_stop[i]+1].mean()
+                df_I_zero_prec.iloc[i_start[i]-1:i_stop[i]+1] = df_I_zero_prec.iloc[i_start[i]-1:i_stop[i]+1].mean()
             
             if zero == 'interp':
                 df_I_zero.interpolate(method='values',inplace=True)
                 df_I_zero.ffill(inplace=True)
                 df_I_zero.bfill(inplace=True)
+                
+                # Interpolate uncertainties, the interpolation is not adding information and thus reducing the error between zero measurements would not make sense
+                df_I_zero_prec.interpolate(method='values',inplace=True)
+                df_I_zero_prec.ffill(inplace=True)
+                df_I_zero_prec.bfill(inplace=True)
             
             elif zero == 'ffill':
                 df_I_zero.ffill(inplace=True)
                 df_I_zero.bfill(inplace=True)
             
+                df_I_zero_prec.ffill(inplace=True)
+                df_I_zero_prec.bfill(inplace=True)
+                
             elif zero == 'bfill':
                 df_I_zero.bfill(inplace=True)
                 df_I_zero.ffill(inplace=True)
             
+                df_I_zero_prec.bfill(inplace=True)
+                df_I_zero_prec.ffill(inplace=True)
+                
             else:
                 print('Zero method not supported')
                 raise ValueError
-            
-        return df_I_zero
+        
+        del [df_I_tmp, df_I_tmp_prec]
+        
+        return df_I_zero, df_I_zero_prec
 
     def set_zero(self, tdelta_buf_zero = dt.timedelta(minutes=1), tdelta_avg_zero=dt.timedelta(minutes=5), tdelta_min_zero=dt.timedelta(minutes=20), zero='constant', mute = False):
-        self.df_zero = self.get_zero(tdelta_buf_zero = tdelta_buf_zero, tdelta_avg_zero = tdelta_avg_zero, tdelta_min_zero=tdelta_min_zero, zero = zero, mute = mute)
+        self.df_zero, self.df_zero_prec = self.get_zero(tdelta_buf_zero = tdelta_buf_zero, tdelta_avg_zero = tdelta_avg_zero, tdelta_min_zero=tdelta_min_zero, zero = zero, mute = mute)
         self.zero_description = '{}, zero values'.format(self.data_description)
         self.zero_units = self.data_units
         
         return None
 
     def get_data_zero_corrected(self, tdelta_buf_zero = dt.timedelta(minutes=1), tdelta_avg_zero=dt.timedelta(minutes=5), tdelta_min_zero=dt.timedelta(minutes=20), zero='constant', mute = False):
-        # zero correction for the primary ions is not relevant, copy these columns and replace them afterwards
         if self.zero_units == self.data_units:
             df_I_zc = self.df_data.copy() - self.df_zero.copy()
+            df_I_zc_prec = (self.df_prec.copy().pow(2)+self.df_zero_prec.copy(2).pow(2)).pow(0.5)
         else:
-            df_I_zc = self.df_data.copy() - self.get_zero(tdelta_buf_zero = tdelta_buf_zero, tdelta_avg_zero = tdelta_avg_zero, tdelta_min_zero=tdelta_min_zero, zero = zero, mute = mute)
+            df_I_tmp, df_I_tmp_prec = self.get_zero(tdelta_buf_zero = tdelta_buf_zero, tdelta_avg_zero = tdelta_avg_zero, tdelta_min_zero=tdelta_min_zero, zero = zero, mute = mute)
+            df_I_zc = self.df_data.copy() - df_I_tmp
+            df_I_zc_prec = (self.df_prec.copy().pow(2) + df_I_tmp_prec.copy(2).pow(2)).pow(0.5)
         
-        return df_I_zc
+        return df_I_zc, df_I_zc_prec
         
     def transform_data_subtract_zero(self, tdelta_buf_zero = dt.timedelta(minutes=1), tdelta_avg_zero=dt.timedelta(minutes=5), tdelta_min_zero=dt.timedelta(minutes=20), zero='constant', mute = False):
-        self.df_data = self.get_data_zero_corrected(tdelta_buf_zero=tdelta_buf_zero, tdelta_avg_zero=tdelta_avg_zero, tdelta_min_zero=tdelta_min_zero, zero = zero, mute = mute)
+        self.df_data, self.df_prec = self.get_data_zero_corrected(tdelta_buf_zero=tdelta_buf_zero, tdelta_avg_zero=tdelta_avg_zero, tdelta_min_zero=tdelta_min_zero, zero = zero, mute = mute)
+        self.df_rprec = self.df_prec/self.df_data
+        
         return None
 
     def get_data_ncr(self, dict_Xr0={}, Xr0_default=1.):
