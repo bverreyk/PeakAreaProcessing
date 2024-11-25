@@ -34,7 +34,7 @@ except:
 __version__ = 'v0.0.1'
 
 ######################
-## Support toutines ##
+## Support routines ##
 ######################
 def check_create_output_dir(path):
     '''
@@ -709,34 +709,18 @@ class TOF_campaign(object):
                 df_transmission.ctime = pd.to_datetime(df_transmission.ctime)
                 df_stability.ctime    = pd.to_datetime(df_stability.ctime)
                 df_anc.ctime    = pd.to_datetime(df_anc.ctime)
-        
-            # Exctract the uncertainty columns out of the calibrations file
-            tmp_calibrations = df_calibrations.drop(['I_cps_H3O1_21', 'I_cps_H5O2_38','file'],axis=1)
-            mz_columns = []
-            mz_unc_columns = []
-            ancillary = ['ctime']
-            for col in tmp_calibrations.columns:
-                if col in ancillary:
-                    continue
                 
-                if (('_racc' in col) or ('_prec' in col)):
-                    mz_unc_columns.append(col)
-                    
-                else:
-                    mz_columns.append(col)
+            df_calibrations, df_calibrations_rprec, df_calibrations_racc = deconstruct_df_calibrations(df_calibrations)
             
-            df_calibrations_unc = tmp_calibrations.drop(mz_columns,axis=1).copy()
-            df_calibrations.drop(mz_unc_columns,axis=1,inplace=True)
-
-                
         else:
-            df_calibrations     = None
-            df_transmission     = None
-            df_stability        = None
-            df_anc              = None
-            df_calibrations_unc = None
+            df_calibrations       = None
+            df_transmission       = None
+            df_stability          = None
+            df_anc                = None
+            df_calibrations_racc  = None
+            df_calibrations_rprec = None
         
-        return df_calibrations, df_calibrations_unc, df_transmission, df_stability, df_anc, calibration_ancillary
+        return df_calibrations, df_calibrations_rprec, df_calibrations_racc, df_transmission, df_stability, df_anc, calibration_ancillary
     
     def archive_calibrations(self, df_calibrations, df_transmission, df_stability, df_anc):
         dir_o_cal = self.get_dir_o_calib()
@@ -757,7 +741,7 @@ class TOF_campaign(object):
     def process_calibrations(self):
         print('start process calibrations, {}'.format(self.calibrations_analysis))
         
-        df_calibrations, df_calibrations_unc, df_transmission, df_stability, df_anc, calibration_ancillary = self.get_archived_calibrations()
+        df_calibrations, df_calibrations_rprec, df_calibrations_racc, df_transmission, df_stability, df_anc, calibration_ancillary = self.get_archived_calibrations()
         
         list_hdf5_calib = self.get_list_hdf5_IDA_calibrations()
         for f_hdf5 in list_hdf5_calib:
@@ -798,7 +782,10 @@ class TOF_campaign(object):
                      ]
             
             dir_o_cal = self.get_dir_o_calib()
-            new_trans, new_calib, new_stability, new_anc = PTR_data_object.process_calibration(calibration_ancillary, dir_o_cal, **{key: self.processing_config[key] for key in kwords}, Q_ptrms_corr=self.name)
+            new_trans, new_calib, new_stability, new_anc = PTR_data_object.process_calibration(calibration_ancillary, dir_o_cal, 
+                                                                                               **{key: self.processing_config[key] for key in kwords}, 
+                                                                                               precision_calc=self.processing_config['precision_calc'],
+                                                                                               Q_ptrms_corr=self.name)
 
             new_trans['file']     = f_hdf5
             new_calib['file']     = f_hdf5
@@ -926,35 +913,55 @@ class TOF_campaign(object):
 
         return df_tr_clusters
     
-    def get_calibrationCoefficients(self, dt_axis, df_calibrations, df_clusters, t_interp = 'constant', t_pairing='both'):
+    def get_calibrationCoefficients(self, dt_axis, df_calibrations, df_calibrations_rprec, df_calibrations_racc, df_clusters, t_interp = 'constant', t_pairing='both'):
         df_tmp = df_calibrations.copy()
         df_tmp.set_index('ctime',inplace=True)
         df_tmp.drop(['file','I_cps_H3O1_21','I_cps_H5O2_38'],axis=1,inplace=True)
         df_tmp.columns = [float(col) for col in df_tmp.columns]
-        
+
+        df_tmp_rprec = df_calibrations_rprec.copy()
+        df_tmp_rprec.set_index('ctime',inplace=True)
+        df_tmp_rprec.columns = [float(col) for col in df_tmp_rprec.columns]
+
+        df_tmp_racc = df_calibrations_racc.copy()
+        df_tmp_racc.set_index('ctime',inplace=True)
+        df_tmp_racc.columns = [float(col) for col in df_tmp_racc.columns]
+
         if not t_interp == 'constant':
             if not t_pairing in ('both','before','after'):
                 raise ValueError
             if t_pairing == 'before':
-                df_tmp = df_tmp[df_tmp.index <= dt_axis.max()]
+                df_tmp       = df_tmp[df_tmp.index <= dt_axis.max()]
+                df_tmp_rprec = df_tmp_rprec[df_tmp_rprec.index <= dt_axis.max()]
+                df_tmp_racc  = df_tmp_racc[df_tmp_racc.index <= dt_axis.max()]
+                
             elif t_pairing == 'after':
-                df_tmp = df_tmp[df_tmp.index >= dt_axis.min()]
+                df_tmp       = df_tmp[df_tmp.index >= dt_axis.min()]
+                df_tmp_rprec = df_tmp_rprec[df_tmp_rprec.index >= dt_axis.min()]
+                df_tmp_racc  = df_tmp_racc[df_tmp_racc.index >= dt_axis.min()]
         
         if t_interp == 'constant':
-            dict_cc_clusters = {}
+            dict_cc_clusters       = {}
+            dict_cc_clusters_rprec = {}
+            dict_cc_clusters_racc  = {}
             for mz in df_tmp.columns:
                 mz_col = mz_r.select_mz_cluster_from_exact(mz, df_clusters, tol = 0.01, mute = True)
                 if np.isnan(mz_col):
                     continue
-                dict_cc_clusters[mz_col] = df_tmp[mz].mean()
                 
-            df_cc_clusters = pd.DataFrame([dict_cc_clusters])
+                dict_cc_clusters[mz_col]       = df_tmp[mz].mean()
+                dict_cc_clusters_rprec[mz_col] = df_tmp_rprec[mz].mean()
+                dict_cc_clusters_racc[mz_col]  = df_tmp_racc[mz].mean()
+                
+            df_cc_clusters       = pd.DataFrame([dict_cc_clusters])
+            df_cc_clusters_rprec = pd.DataFrame([dict_cc_clusters_rprec])
+            df_cc_clusters_racc  = pd.DataFrame([dict_cc_clusters_racc])
             
         else:
             print('Error, configuration not supported')
             raise ValueError
                 
-        return df_cc_clusters
+        return df_cc_clusters, df_cc_clusters_rprec, df_cc_clusters_racc
     
 
     def process(self, ongoing = False, t_start = None, t_stop=None, masks = [], output_threshold = 1, file_format = 'conf0'):
@@ -970,7 +977,7 @@ class TOF_campaign(object):
         # Check, process and archive calibrations
         #########################################
         self.process_calibrations()
-        df_calibrations, df_calibrations_unc, df_transmission, df_stability, df_anc, calibration_ancillary = self.get_archived_calibrations()
+        df_calibrations, df_calibrations_rprec, df_calibrations_racc, df_transmission, df_stability, df_anc, calibration_ancillary = self.get_archived_calibrations()
         
         # Anc: Calibration breaks
         #########################
@@ -1094,7 +1101,10 @@ class TOF_campaign(object):
                 
                 dict_Xr0 = self.get_Xr0_mz(PTR_data_object.df_clusters)                                                                                 # Get Xr0 dictionary for non default values
                 
-                df_cc_coeff     = self.get_calibrationCoefficients(dt_axis, df_calibrations, PTR_data_object.df_clusters, t_pairing = t_pairing)        # Get calibration coefficients
+                df_cc_coeff, df_cc_coeff_rprec, df_cc_coeff_racc = self.get_calibrationCoefficients(dt_axis, df_calibrations, 
+                                                                                                    df_calibrations_rprec, 
+                                                                                                    df_calibrations_racc, 
+                                                                                                    PTR_data_object.df_clusters, t_pairing = t_pairing) # Get calibration coefficients
 
                 for mz in df_cc_coeff:
                     df_cc_coeff[mz] = df_cc_coeff[mz]/df_tr_coeff[mz]                                                                                   # Get the transmission corrected calibration coefficients as all data will be transmission corrected 
@@ -1110,7 +1120,7 @@ class TOF_campaign(object):
                 
                 PTR_data_object.transform_data_ncr(dict_Xr0,self.processing_config['Xr0_default'])                                                      # Normalise signal
                 PTR_data_object.transform_data_trcnrc(df_tr_coeff)                                                                                      # Correct for transmission
-                PTR_data_object.transform_data_VMR(df_cc_coeff,k_reac_mz,k_reac_default,multiplier)                                                     # Transform to VMR, use transmission corrected calibration coefficients when available, otherwise use first principles.
+                PTR_data_object.transform_data_VMR(df_cc_coeff,df_cc_coeff_rprec,df_cc_coeff_racc,k_reac_mz,k_reac_default,multiplier)                  # Transform to VMR, use transmission corrected calibration coefficients when available, otherwise use first principles.
                 PTR_data_object.set_zero(**kw_zero,mute=True)                                                                                           # Set zero dataframe
                 PTR_data_object.transform_data_subtract_zero(**kw_zero, mute = True)                                                                    # Subtract zero
                 
@@ -1140,6 +1150,69 @@ class TOF_campaign(object):
                 start = stop
         
         return None
+    
+    
+    
+######################################
+## PTR data object support routines ##
+######################################
+    
+def deconstruct_df_calibrations(df_calibrations):
+    # Exctract the uncertainty columns out of the calibrations file
+    tmp_calibrations = df_calibrations.drop(['I_cps_H3O1_21', 'I_cps_H5O2_38','file'],axis=1)
+    mz_columns = []
+    mz_rprec_columns = []
+    mz_racc_columns  = []
+    ancillary = ['ctime']
+    rprec_correction_factor = 1.
+    racc_correction_factor = 1.
+    for col in tmp_calibrations.columns:
+        if col in ancillary:
+            continue
+        
+        if '_rprec' in col:
+            mz_rprec_columns.append(col)
+            if '[%]' in col:
+                rprec_correction_factor = 1.e-2
+            
+        elif '_racc' in col:
+            mz_racc_columns.append(col)
+            if '[%]' in col:
+                racc_correction_factor = 1.e-2
+                
+        else:
+            mz_columns.append(col)
+    
+    df_calibrations_runc = tmp_calibrations.drop(mz_columns,axis=1).copy()
+   
+    df_calibrations_rprec = df_calibrations_runc.drop(mz_racc_columns,axis=1).copy()
+    df_calibrations_rprec[mz_rprec_columns] = df_calibrations_rprec[mz_rprec_columns].mul(rprec_correction_factor)
+    df_calibrations_rprec.columns = [col.split('_')[0] for col in df_calibrations_rprec.columns]
+    
+    df_calibrations_racc = df_calibrations_runc.drop(mz_rprec_columns,axis=1).copy()
+    df_calibrations_racc[mz_racc_columns] = df_calibrations_racc[mz_racc_columns].mul(racc_correction_factor)
+    df_calibrations_racc.columns = [col.split('_')[0] for col in df_calibrations_racc.columns]
+    
+    df_calibrations.drop(mz_rprec_columns,axis=1,inplace=True)
+    df_calibrations.drop(mz_racc_columns,axis=1,inplace=True)
+
+    return df_calibrations, df_calibrations_rprec, df_calibrations_racc
+
+def get_data_corrected(df_I, df_clusters, selected_multiplier, default_multiplier = 1.):
+    # Selected multiplier is assumed to be a dictionary with key mz(_exact/_col) and value the multiplier
+    # Default multiplier will be used to divide the columns
+    df_I = df_I.copy()
+    for mz, multiplier in selected_multiplier.items():
+        mz_col = mz_r.select_mz_cluster_from_exact(mz, df_clusters, tol = 0.01, mute = True)
+        if ((np.isnan(mz_col)) or 
+            (not mz_col in df_I.columns)):
+            continue
+        
+        correction_factor = multiplier/default_multiplier
+        df_I[mz_col] = df_I[mz_col]*correction_factor
+        
+    return df_I
+
     
 #####################
 ## PTR data object ##
@@ -1254,7 +1327,7 @@ class PTR_data(object):
         
         # Precision and data
         ####################
-        # Based on distribution
+        # Based on Distribution
         resampled      = self.df_data.resample(acc_interval,origin=origin,offset=offset)
         self.df_prec   = resampled.std()/np.sqrt(resampled.count())
         
@@ -1311,19 +1384,9 @@ class PTR_data(object):
         df_prec = self.df_data*df_rprec
         
         return df_prec, df_rprec
-    
+        
     def transform_data_correction(self, selected_multiplier, default_multiplier = 1.):
-        # Selected multiplier is assumed to be a dictionary with key mz(_exact/_col) and value the multiplier
-        # Default multiplier will be used to divide the columns
-        for mz, multiplier in selected_multiplier.items():
-            mz_col = mz_r.select_mz_cluster_from_exact(mz, self.df_clusters, tol = 0.01, mute = True)
-            if ((np.isnan(mz_col)) or 
-                (not mz_col in self.df_data.columns)):
-                continue
-            
-            correction_factor = multiplier/default_multiplier
-            self.df_data[mz_col] = self.df_data[mz_col]*correction_factor
-            
+        self.df_data = get_data_corrected(self.df_data, self.df_clusters, selected_multiplier, default_multiplier = 1.)
         return None
 
     def get_data_totalcounts(self):
@@ -1537,7 +1600,7 @@ class PTR_data(object):
 
         return None
     
-    def transform_data_VMR(self, df_calibration, k_reac_mz = {}, k_reac_default = 2, multiplier={}):
+    def get_data_VMR(self, df_cc_coeff, df_cc_coeff_rprec, df_cc_coeff_racc, k_reac_mz = {}, k_reac_default = 2, multiplier={}):
         '''
         Transform normalised data to volume mixing ratio, take into account the transmission, direct calibration, and chemical rates.
         There is a possibility to define a multiplicator to take into account isotopic ratio.
@@ -1555,30 +1618,72 @@ class PTR_data(object):
         CC_kinetic = k_reac_default*N_DT*t_reac*1.e-3
         CC_kinetic = CC_kinetic*1.e-9 # Correct for the units in k_default
 
-        self.df_data = self.df_data/CC_kinetic
+        df_ppbv = self.df_data.copy()
+        df_ppbv_prec = self.df_prec.copy()
+        # Set relative accuracy to 0.5 for all compounds, correct for calirbated later on
+        df_ppbv_racc = pd.DataFrame(data=0.5, index=df_ppbv.index, columns=df_ppbv.columns)
         
-        # Correct for calibrated compounds
-        cc_corrections = {key: val**-1 for key, val in df_calibration.T.to_dict()[0].items()}
-        self.transform_data_correction(cc_corrections,default_multiplier=CC_kinetic**-1)
+        ## Default calculation from first principles
+        ############################################
+        # select uncalibrated compounds specifically
+        subset = df_ppbv.columns.difference(df_cc_coeff.keys())
+        df_ppbv[subset] = df_ppbv[subset]/CC_kinetic
         
-        # Combine other corrections
-        # Correct for compounds with dedicated chemical reaction rate
-        corrections = {key: val**-1 for key, val in k_reac_mz.items()}
+        # Scale precision for uncalibrated and set accuracy to 50% for all compounds
+        df_ppbv_prec[subset] = df_ppbv_prec[subset]/CC_kinetic
+        
+        # Corrections due to deviation of default reaction rate constants
+        k_reac_mz = pd.DataFrame(k_reac_mz, index=[0])
+        subset = k_reac_mz.columns.difference(df_cc_coeff.columns)
+        corrections = k_reac_mz[subset].pow(-1)
         default_multiplier = k_reac_default**-1
         
-        # Correct using the multiplicator (generally isotopic ratio combined with fractioning factor)
-        for key, val in multiplier.items():
-            if key in corrections.keys():
-                corrections[key] = corrections[key]*val
-            else:
-                corrections[key] = val
-        default_multiplier = default_multiplier*1
+        # Only uncalibrated compounds were selected to be corrected and thus no correction to calibrated needed here
+        df_ppbv = get_data_corrected(df_ppbv, self.df_clusters, 
+                                     corrections, default_multiplier = default_multiplier)
+        df_ppbv_prec = get_data_corrected(df_ppbv_prec, self.df_clusters, 
+                                          corrections, default_multiplier = default_multiplier)
 
-        self.transform_data_correction(corrections,default_multiplier=default_multiplier)
+        # Corrections using the multiplicator (generally isotopic ratio combined with fractioning factor)
+        multiplier = pd.DataFrame(multiplier, index=[0])
+        subset = multiplier.columns.difference(df_cc_coeff.columns)
+        corrections = multiplier[subset]
+        default_multiplier = 1.
+                
+        # Only uncalibrated compounds were selected to be corrected and thus no correction to calibrated needed here
+        df_ppbv = get_data_corrected(df_ppbv, self.df_clusters, 
+                                     corrections, default_multiplier = default_multiplier)
+        df_ppbv_prec = get_data_corrected(df_ppbv_prec, self.df_clusters, 
+                                          corrections, default_multiplier = default_multiplier)
+
+        # Calculate MR of calibrated compounds and set accuracy and precision
+        #####################################################################
+        cc_corrections = df_cc_coeff_racc.pow(-1).iloc[0]
+        df_ppbv = get_data_corrected(df_ppbv, self.df_clusters, 
+                                     cc_corrections, default_multiplier=1)
+        
+        subset = df_ppbv.columns.intersection(df_cc_coeff_racc.columns)
+        df_ppbv_racc[subset] = df_cc_coeff_racc
+
+        subset = df_ppbv.columns.intersection(df_cc_coeff_rprec.columns)
+        df_ppbv_prec[subset] = (
+            (df_ppbv_prec[subset]).pow(2)+
+            (df_cc_coeff_rprec[subset].mul(df_cc_coeff[subset])).pow(2)
+            ).pow(0.5)
         
         # The transformation of primary ions is not relevant so revert here
         for mz_col in [self.mz_col_21, self.mz_col_38]:
-            self.df_data[mz_col] = self.df_data[mz_col]*CC_kinetic
+            df_ppbv[mz_col] = self.df_data[mz_col]
+            df_ppbv_racc[mz_col] = np.nan
+        
+        df_ppbv_acc = df_ppbv_racc*df_ppbv
+        df_ppbv_rprec = df_ppbv_prec/df_ppbv
+        
+        return df_ppbv, df_ppbv_prec, df_ppbv_rprec, df_ppbv_acc, df_ppbv_racc
+    
+    def transform_data_VMR(self, df_cc_coeff, df_cc_coeff_rprec, df_cc_coeff_racc, k_reac_mz = {}, k_reac_default = 2, multiplier={}):
+        self.df_data, self.df_prec, self.df_rprec, self.df_acc, self.df_racc = self.get_data_VMR(df_cc_coeff, df_cc_coeff_rprec, df_cc_coeff_racc, 
+                                                                                                 k_reac_mz, k_reac_default, multiplier)
         
         self.data_description = 'Mixing Ratio'
         self.data_units = 'ppbv'
@@ -1804,7 +1909,7 @@ class PTR_data(object):
                              rate_coeff_col_calib = '', dict_Xr0={}, Xr0_default=1., 
                              Q_zero_air = 800, Q_zero_air_unc = 10, # sccm, 1% of full scale (0-1000 sccm)
                              Q_calib = 10, Q_calib_unc = 0.1,       # unc = 1% stated uncertainty on set point 
-                             Q_ptrms_corr = 'BE-Vie_2022'):
+                             precision_calc = 'Distribution', Q_ptrms_corr = 'BE-Vie_2022'):
         
         rstd = {}
         cc_coeff = {}
@@ -1872,7 +1977,7 @@ class PTR_data(object):
         
         anc_info['t_reac_unc'] = t_reac_unc
         anc_info['N_DT_unc']   = N_DT_unc
-                
+        
         if not self.data_units == 'cps':
             print('Error, units not correct to calculate Tr_PH1_to_PH2')
             print(self.data_units)
@@ -1925,8 +2030,9 @@ class PTR_data(object):
             if mz_col in self.df_data.keys():
                 signal = self.df_data[mask_calc_calib][mz_col].mean()
 
+                # signal_unc = self.df_prec[mask_calc_calib][mz_col].mean()/np.sqrt(mask_calc_calib.sum())
                 signal_unc = self.df_data[mask_calc_calib][mz_col].std()/np.sqrt(mask_calc_calib.sum())
-                signal_unc = self.df_prec[mask_calc_calib][mz_col].mean()
+
             else:
                 print('WARNING NO SIGNAL FOUND FOR MZ {} IN IDA FILE WITH CALIBRATION'.format(mz))
                 signal = np.nan
@@ -1939,7 +2045,8 @@ class PTR_data(object):
             dir_o_calibration = '{1}{2}{0}'.format(os.sep,dir_o_cal,ctime.strftime('%Y%m%d_%Hh%M'))
             
             check_create_output_dir(dir_o_calibration)
-            self.save_plot_masks(mz,additional_masks = {'zero calc':mask_calc_zero,'mask stability check':mask_check_stability,'calib calc':mask_calc_calib}, dir_o = dir_o_calibration)
+            if not np.isnan(signal):
+                self.save_plot_masks(mz,additional_masks = {'zero calc':mask_calc_zero,'mask stability check':mask_check_stability,'calib calc':mask_calc_calib}, dir_o = dir_o_calibration)
             
             MR_DT, MR_DT_unc = calib_r.get_mixingRatio_driftTube_Calib_unc(Q_calib, Q_calib_unc,
                                                                            Q_PTRMS, Q_PTRMS_unc,
@@ -1950,11 +2057,11 @@ class PTR_data(object):
             
             CC = signal/MR_DT
             CC_racc = MR_DT_unc/MR_DT*100.
-            CC_prec = signal_unc
+            CC_rprec = signal_unc/signal*100.
             
             cc_coeff[mz] = CC
             cc_coeff['{}_racc [%]'.format(mz)] = CC_racc
-            cc_coeff['{}_prec [{} ppbv-1]'.format(mz, self.data_units)] = CC_prec
+            cc_coeff['{}_rprec [%]'.format(mz)] = CC_rprec
         
         tr_coeff['ctime'] = ctime.round('1s')
         cc_coeff['ctime'] = ctime.round('1s')
