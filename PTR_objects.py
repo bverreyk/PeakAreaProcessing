@@ -709,9 +709,26 @@ class TOF_campaign(object):
                 df_transmission.ctime = pd.to_datetime(df_transmission.ctime)
                 df_stability.ctime    = pd.to_datetime(df_stability.ctime)
                 df_anc.ctime    = pd.to_datetime(df_anc.ctime)
-                
+            
             df_calibrations, df_calibrations_rprec, df_calibrations_racc = deconstruct_df_calibrations(df_calibrations)
             
+            # Correct calibration factors here to obtain it in trcncps ppbv-1
+            df_cc_tmp = df_calibrations.copy()
+            df_cc_tmp.drop(['I_cps_H3O1_21', 'I_cps_H5O2_38','file','ctime'],axis=1,inplace=True)
+            df_cc_tmp.columns = [float(mz) for mz in df_cc_tmp.columns]
+            
+            df_tr_interp = df_transmission.drop(['file','ctime'],axis=1)
+            df_tr_interp.columns = [float(mz) for mz in df_tr_interp.columns]
+            for col in df_cc_tmp.columns:
+                if not col in df_tr_interp.columns:
+                    df_tr_interp[col] = np.nan
+
+            df_tr_interp.sort_index(axis=1, inplace=True)
+            df_tr_interp.interpolate(method='values',axis=1,inplace=True)
+            df_tr_interp.columns = [str(mz) for mz in df_tr_interp.columns]
+            subset = df_tr_interp.columns.intersection(df_calibrations.columns)
+            df_calibrations[subset] = df_calibrations[subset]/df_tr_interp[subset]
+
         else:
             df_calibrations       = None
             df_transmission       = None
@@ -914,6 +931,9 @@ class TOF_campaign(object):
         return df_tr_clusters
     
     def get_calibrationCoefficients(self, dt_axis, df_calibrations, df_calibrations_rprec, df_calibrations_racc, df_clusters, t_interp = 'constant', t_pairing='both'):
+        '''
+        Get information extracted from calibrations. 
+        '''
         df_tmp = df_calibrations.copy()
         df_tmp.set_index('ctime',inplace=True)
         df_tmp.drop(['file','I_cps_H3O1_21','I_cps_H5O2_38'],axis=1,inplace=True)
@@ -1106,9 +1126,6 @@ class TOF_campaign(object):
                                                                                                     df_calibrations_racc, 
                                                                                                     PTR_data_object.df_clusters, t_pairing = t_pairing) # Get calibration coefficients
 
-                for mz in df_cc_coeff:
-                    df_cc_coeff[mz] = df_cc_coeff[mz]/df_tr_coeff[mz]                                                                                   # Get the transmission corrected calibration coefficients as all data will be transmission corrected 
-                
                 k_reac_mz       = self.get_k_reac_mz(PTR_data_object.df_clusters)                                                                       # Get the reaction rate coefficients for the clusters not using the default value
                 k_reac_default  = self.processing_config['k_reac_default']                                                                              # Set the default
                 multiplier      = self.get_multiplier_mz(PTR_data_object.df_clusters)                                                                   # Get the multiplier (i.e., accounting for fragmentation, isotopic ratio,...) for the identified clusters that have a not 1 value
@@ -1143,7 +1160,7 @@ class TOF_campaign(object):
                     
                     tmp.save_output(dir_o, self.name, self.instrument, df_tr_coeff, df_cc_coeff, masks=masks,threshold=output_threshold,file_format=file_format,time_info=self.time_info, processing_config=self.processing_config)
                 
-                del [PTR_data_object]
+                del(PTR_data_object)
                 
                 # Setup the next cycle of processing
                 ####################################
@@ -1184,7 +1201,7 @@ def deconstruct_df_calibrations(df_calibrations):
             mz_columns.append(col)
     
     df_calibrations_runc = tmp_calibrations.drop(mz_columns,axis=1).copy()
-   
+    
     df_calibrations_rprec = df_calibrations_runc.drop(mz_racc_columns,axis=1).copy()
     df_calibrations_rprec[mz_rprec_columns] = df_calibrations_rprec[mz_rprec_columns].mul(rprec_correction_factor)
     df_calibrations_rprec.columns = [col.split('_')[0] for col in df_calibrations_rprec.columns]
@@ -1199,18 +1216,14 @@ def deconstruct_df_calibrations(df_calibrations):
     return df_calibrations, df_calibrations_rprec, df_calibrations_racc
 
 def get_data_corrected(df_I, df_clusters, selected_multiplier, default_multiplier = 1.):
-    # Selected multiplier is assumed to be a dictionary with key mz(_exact/_col) and value the multiplier
-    # Default multiplier will be used to divide the columns
+    # Selected multiplier is assumed to be a dataframe of multipliers in a single row with columns mz(_exact/_col)
+    # Possibility to set a default multiplier if the data has been corrected before with a wrong factor
     df_I = df_I.copy()
-    for mz, multiplier in selected_multiplier.items():
-        mz_col = mz_r.select_mz_cluster_from_exact(mz, df_clusters, tol = 0.01, mute = True)
-        if ((np.isnan(mz_col)) or 
-            (not mz_col in df_I.columns)):
-            continue
-        
-        correction_factor = multiplier/default_multiplier
-        df_I[mz_col] = df_I[mz_col]*correction_factor
-        
+    selected_multiplier.columns = [mz_r.select_mz_cluster_from_exact(mz, df_clusters, tol = 0.01, mute = True) for mz in selected_multiplier.columns]
+    
+    subset = df_I.columns.intersection(selected_multiplier.columns)
+    df_I[subset] = df_I[subset]*selected_multiplier[subset].iloc[0]/default_multiplier
+
     return df_I
 
     
@@ -1282,7 +1295,47 @@ class PTR_data(object):
         # self.FPH1 = 500
         # self.FPH2 = 750
         
+    def __del__(self):
+        del self.df_data
+        del self.data_description
+        del self.data_units
         
+        del self.sst
+        del self.sst_units
+        del self.df_absolute_counts
+
+        del self.df_zero
+        del self.df_zero_prec
+        del self.zero_description
+        del self.zero_units
+        
+        del self.df_rprec
+        del self.df_prec
+        del self.prec_description
+        del self.prec_units
+
+        del self.df_racc
+        del self.df_acc
+        del self.acc_description
+        del self.acc_units
+
+        del self.df_P_drift
+        del self.df_U_drift
+        del self.df_T_drift
+        del self.df_P_inlet
+        
+        del self.masks
+        
+        del self.df_clusters
+        
+        del self.mz_col_21
+        del self.mz_col_38
+        
+        del self.Tr_PH1_to_PH2
+
+        del self.FPH1
+        del self.FPH2
+                
     def get_PTR_data_subsample_time(self, t_start, t_end, tz_info = None):
         mask = (self.df_data.index >= t_start) & (self.df_data.index < t_end)
         masks = {}
@@ -1332,7 +1385,7 @@ class PTR_data(object):
         self.df_prec   = resampled.std()/np.sqrt(resampled.count())
         
         # data resampling and relative precision
-        self.df_data    = resampled.mean()
+        self.df_data   = resampled.mean()
         self.df_rprec  = self.df_prec/self.df_data
         
         # Correct total counts to allow calcluation according to Poisson later on
@@ -1633,9 +1686,9 @@ class PTR_data(object):
         df_ppbv_prec[subset] = df_ppbv_prec[subset]/CC_kinetic
         
         # Corrections due to deviation of default reaction rate constants
-        k_reac_mz = pd.DataFrame(k_reac_mz, index=[0])
-        subset = k_reac_mz.columns.difference(df_cc_coeff.columns)
-        corrections = k_reac_mz[subset].pow(-1)
+        tmp = pd.DataFrame(k_reac_mz, index=[0])
+        subset = tmp.columns.difference(df_cc_coeff.columns)
+        corrections = tmp[subset].pow(-1)
         default_multiplier = k_reac_default**-1
         
         # Only uncalibrated compounds were selected to be corrected and thus no correction to calibrated needed here
@@ -1649,7 +1702,7 @@ class PTR_data(object):
         subset = multiplier.columns.difference(df_cc_coeff.columns)
         corrections = multiplier[subset]
         default_multiplier = 1.
-                
+        
         # Only uncalibrated compounds were selected to be corrected and thus no correction to calibrated needed here
         df_ppbv = get_data_corrected(df_ppbv, self.df_clusters, 
                                      corrections, default_multiplier = default_multiplier)
@@ -1658,23 +1711,30 @@ class PTR_data(object):
 
         # Calculate MR of calibrated compounds and set accuracy and precision
         #####################################################################
-        cc_corrections = df_cc_coeff_racc.pow(-1).iloc[0]
-        df_ppbv = get_data_corrected(df_ppbv, self.df_clusters, 
-                                     cc_corrections, default_multiplier=1)
+        cc_corrections = df_cc_coeff.pow(-1)
+        df_ppbv = get_data_corrected(df_ppbv, self.df_clusters,
+                                     cc_corrections, default_multiplier=1.)
+        df_ppbv_prec = get_data_corrected(df_ppbv_prec, self.df_clusters,
+                                     cc_corrections, default_multiplier=1.)
         
-        subset = df_ppbv.columns.intersection(df_cc_coeff_racc.columns)
-        df_ppbv_racc[subset] = df_cc_coeff_racc
+        # Set racc for calibrated compounds
+        subset = df_ppbv_racc.columns.intersection(df_cc_coeff_racc.columns)
+        df_ppbv_racc[subset] = 1.
+        df_ppbv_racc[subset] = df_ppbv_racc[subset].mul(df_cc_coeff_racc.iloc[0])
 
-        subset = df_ppbv.columns.intersection(df_cc_coeff_rprec.columns)
-        df_ppbv_prec[subset] = (
-            (df_ppbv_prec[subset]).pow(2)+
-            (df_cc_coeff_rprec[subset].mul(df_cc_coeff[subset])).pow(2)
-            ).pow(0.5)
+        # Correct prec for calibrated compounds
+        df_tmp_prec = pd.DataFrame(0,index=df_ppbv_prec.index, columns=df_ppbv_prec.columns)
+        subset = df_tmp_prec.columns.intersection(df_cc_coeff_rprec.columns)
+        df_tmp_prec[subset] = 1
+        df_tmp_prec[subset] = df_tmp_prec[subset].mul((df_cc_coeff_rprec*df_cc_coeff).iloc[0])
+        
+        df_ppbv_prec[subset] = (df_ppbv_prec[subset].pow(2)+df_tmp_prec[subset].pow(2)).pow(0.5)
+        del [df_tmp_prec]
         
         # The transformation of primary ions is not relevant so revert here
         for mz_col in [self.mz_col_21, self.mz_col_38]:
             df_ppbv[mz_col] = self.df_data[mz_col]
-            df_ppbv_racc[mz_col] = np.nan
+            df_ppbv_racc[mz_col] = 0.
         
         df_ppbv_acc = df_ppbv_racc*df_ppbv
         df_ppbv_rprec = df_ppbv_prec/df_ppbv
