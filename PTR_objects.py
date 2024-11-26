@@ -699,6 +699,23 @@ class TOF_campaign(object):
                 df_transmission.ctime = pd.to_datetime(df_transmission.ctime)
                 df_stability.ctime    = pd.to_datetime(df_stability.ctime)
                 df_anc.ctime    = pd.to_datetime(df_anc.ctime)
+                
+            # Correct calibration factors here to obtain it in trcncps ppbv-1
+            df_cc_tmp = df_calibrations.copy()
+            df_cc_tmp.drop(['I_cps_H3O1_21', 'I_cps_H5O2_38','file','ctime'],axis=1,inplace=True)
+            df_cc_tmp.columns = [float(mz) for mz in df_cc_tmp.columns]
+            
+            df_tr_interp = df_transmission.drop(['file','ctime'],axis=1)
+            df_tr_interp.columns = [float(mz) for mz in df_tr_interp.columns]
+            for col in df_cc_tmp.columns:
+                if not col in df_tr_interp.columns:
+                    df_tr_interp[col] = np.nan
+
+            df_tr_interp.sort_index(axis=1, inplace=True)
+            df_tr_interp.interpolate(method='values',axis=1,inplace=True)
+            df_tr_interp.columns = [str(mz) for mz in df_tr_interp.columns]
+            subset = df_tr_interp.columns.intersection(df_calibrations.columns)
+            df_calibrations[subset] = df_calibrations[subset]/df_tr_interp[subset]
             
         else:
             df_calibrations = None
@@ -1056,9 +1073,6 @@ class TOF_campaign(object):
                 
                 df_cc_coeff     = self.get_calibrationCoefficients(dt_axis, df_calibrations, PTR_data_object.df_clusters, t_pairing = t_pairing)        # Get calibration coefficients
 
-                for mz in df_cc_coeff:
-                    df_cc_coeff[mz] = df_cc_coeff[mz]/df_tr_coeff[mz]                                                                                   # Get the transmission corrected calibration coefficients as all data will be transmission corrected 
-                
                 k_reac_mz       = self.get_k_reac_mz(PTR_data_object.df_clusters)                                                                       # Get the reaction rate coefficients for the clusters not using the default value
                 k_reac_default  = self.processing_config['k_reac_default']                                                                              # Set the default
                 multiplier      = self.get_multiplier_mz(PTR_data_object.df_clusters)                                                                   # Get the multiplier (i.e., accounting for fragmentation, isotopic ratio,...) for the identified clusters that have a not 1 value
