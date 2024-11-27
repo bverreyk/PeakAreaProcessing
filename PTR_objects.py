@@ -1385,7 +1385,7 @@ class PTR_data(object):
         
         # data resampling and relative precision
         self.df_data   = resampled.mean()
-        self.df_rprec  = self.df_prec/self.df_data
+        self.df_rprec  = self.df_prec/abs(self.df_data)
         
         # Correct total counts to allow calcluation according to Poisson later on
         self.df_absolute_counts = self.df_absolute_counts.resample(acc_interval,origin=origin,offset=offset).sum()
@@ -1432,8 +1432,8 @@ class PTR_data(object):
    
     def get_precision_poisson(self):
         df_prec = self.df_absolute_counts.pow(0.5)
-        df_rprec = df_prec/self.df_absolute_counts
-        df_prec = self.df_data*df_rprec
+        df_rprec = df_prec/abs(self.df_absolute_counts)
+        df_prec = abs(self.df_data)*df_rprec
         
         return df_prec, df_rprec
         
@@ -1544,7 +1544,7 @@ class PTR_data(object):
         
     def transform_data_subtract_zero(self, tdelta_buf_zero = dt.timedelta(minutes=1), tdelta_avg_zero=dt.timedelta(minutes=5), tdelta_min_zero=dt.timedelta(minutes=20), zero='constant', mute = False):
         self.df_data, self.df_prec = self.get_data_zero_corrected(tdelta_buf_zero=tdelta_buf_zero, tdelta_avg_zero=tdelta_avg_zero, tdelta_min_zero=tdelta_min_zero, zero = zero, mute = mute)
-        self.df_rprec = self.df_prec/self.df_data
+        self.df_rprec = self.df_prec/abs(self.df_data)
         
         return None
 
