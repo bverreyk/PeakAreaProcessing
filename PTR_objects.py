@@ -1218,7 +1218,6 @@ def deconstruct_df_calibrations(df_calibrations):
 def get_data_corrected(df_I, df_clusters, selected_multiplier, default_multiplier = 1.):
     # Selected multiplier is assumed to be a dataframe of multipliers in a single row with columns mz(_exact/_col)
     # Possibility to set a default multiplier if the data has been corrected before with a wrong factor
-    df_I = df_I.copy()
     selected_multiplier.columns = [mz_r.select_mz_cluster_from_exact(mz, df_clusters, tol = 0.01, mute = True) for mz in selected_multiplier.columns]
     
     subset = df_I.columns.intersection(selected_multiplier.columns)
@@ -1421,7 +1420,7 @@ class PTR_data(object):
             raise ValueError
         
         resolution = np.diff(self.df_data.index).mean()/np.timedelta64(1, 's')
-        counts = resolution*self.df_data.copy()
+        counts = resolution*self.df_data
         
         return counts
     
@@ -1534,11 +1533,11 @@ class PTR_data(object):
 
     def get_data_zero_corrected(self, tdelta_buf_zero = dt.timedelta(minutes=1), tdelta_avg_zero=dt.timedelta(minutes=5), tdelta_min_zero=dt.timedelta(minutes=20), zero='constant', mute = False):
         if self.zero_units == self.data_units:
-            df_I_zc = self.df_data.copy() - self.df_zero.copy()
+            df_I_zc = self.df_data - self.df_zero
             df_I_zc_prec = (self.df_prec.pow(2)+self.df_zero_prec.pow(2)).pow(0.5)
         else:
             df_I_tmp, df_I_tmp_prec = self.get_zero(tdelta_buf_zero = tdelta_buf_zero, tdelta_avg_zero = tdelta_avg_zero, tdelta_min_zero=tdelta_min_zero, zero = zero, mute = mute)
-            df_I_zc = self.df_data.copy() - df_I_tmp
+            df_I_zc = self.df_data - df_I_tmp
             df_I_zc_prec = (self.df_prec.pow(2) + df_I_tmp_prec.pow(2)).pow(0.5)
         
         return df_I_zc, df_I_zc_prec
