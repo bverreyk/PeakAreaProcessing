@@ -1535,11 +1535,11 @@ class PTR_data(object):
     def get_data_zero_corrected(self, tdelta_buf_zero = dt.timedelta(minutes=1), tdelta_avg_zero=dt.timedelta(minutes=5), tdelta_min_zero=dt.timedelta(minutes=20), zero='constant', mute = False):
         if self.zero_units == self.data_units:
             df_I_zc = self.df_data.copy() - self.df_zero.copy()
-            df_I_zc_prec = (self.df_prec.copy().pow(2)+self.df_zero_prec.copy(2).pow(2)).pow(0.5)
+            df_I_zc_prec = (self.df_prec.pow(2)+self.df_zero_prec.pow(2)).pow(0.5)
         else:
             df_I_tmp, df_I_tmp_prec = self.get_zero(tdelta_buf_zero = tdelta_buf_zero, tdelta_avg_zero = tdelta_avg_zero, tdelta_min_zero=tdelta_min_zero, zero = zero, mute = mute)
             df_I_zc = self.df_data.copy() - df_I_tmp
-            df_I_zc_prec = (self.df_prec.copy().pow(2) + df_I_tmp_prec.copy(2).pow(2)).pow(0.5)
+            df_I_zc_prec = (self.df_prec.pow(2) + df_I_tmp_prec.pow(2)).pow(0.5)
         
         return df_I_zc, df_I_zc_prec
         
