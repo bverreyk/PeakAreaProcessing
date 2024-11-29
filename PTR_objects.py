@@ -1056,6 +1056,7 @@ class TOF_campaign(object):
                 # Get the data interval to process
                 ##################################
                 stop = start + self.processing_config['processing_interval']
+                print('{} -- {}'.format(start.strftime('%Y-%b-%d %H:%M:%S %Z'),stop.strftime('%Y-%b-%d %H:%M:%S %Z')))
                 
                 PTR_data_object = None
                 if (t_start <= start) and (t_stop >= stop):
@@ -1068,8 +1069,8 @@ class TOF_campaign(object):
                 
                 # Check if data is found
                 if PTR_data_object is None:
-                    print('No data found between {} and {}.'.format(start.strftime('%Y-%m-%d %H:%M'), stop.strftime('%Y-%m-%d %H:%M')))
-                    start =  stop
+                    print('No data found between {} and {}.'.format(start.strftime('%Y-%m-%d %H:%M %Z'), stop.strftime('%Y-%m-%d %H:%M %Z')))
+                    start = stop
                     continue
                 
                 # Check if we cross a calibration break
@@ -1159,8 +1160,8 @@ class TOF_campaign(object):
                         check_create_output_dir(dir_o)
                     
                     tmp.save_output(dir_o, self.name, self.instrument, df_tr_coeff, df_cc_coeff, masks=masks,threshold=output_threshold,file_format=file_format,time_info=self.time_info, processing_config=self.processing_config)
-                
-                del(PTR_data_object)
+                    del tmp
+                del PTR_data_object
                 
                 # Setup the next cycle of processing
                 ####################################
@@ -1231,6 +1232,7 @@ def get_data_corrected(df_I, df_clusters, selected_multiplier, default_multiplie
 #####################
 class PTR_data(object):
     '''PTR data object to be transformed to concentrations.'''
+    
     def __init__(self, df_data, data_description, data_units, sst, sst_units, df_P_drift, df_U_drift, df_T_drift, df_P_inlet, masks, df_clusters):
         self.df_data = df_data
         self.data_description = data_description
@@ -1239,22 +1241,22 @@ class PTR_data(object):
         # sst = single spectrum time; used to calculate total counts
         self.sst = sst
         self.sst_units = sst_units
-        self.df_absolute_counts = self.get_data_totalcounts()
+        self.df_absolute_counts = None
+        if not self.df_data is None:
+            self.df_absolute_counts = self.get_data_totalcounts()
+
 
         self.df_zero = None
         self.df_zero_prec = None
         self.zero_description = None
+        self.zero_prec_description = None
         self.zero_units = None
         
-        self.df_rprec = None
         self.df_prec = None
         self.prec_description = None
         self.prec_units = None
 
         self.df_racc = None
-        self.df_acc = None
-        self.acc_description = None
-        self.acc_units = None
 
         self.df_P_drift = df_P_drift
         self.df_U_drift = df_U_drift
@@ -1264,7 +1266,7 @@ class PTR_data(object):
         self.masks = masks
         
         self.df_clusters = df_clusters
-        
+
         self.mz_col_21 = mz_r.select_mz_cluster_from_exact(21.022, self.df_clusters, tol = 0.01, mute = True)
         self.mz_col_38 = mz_r.select_mz_cluster_from_exact(38.033, self.df_clusters, tol = 0.01, mute = True)
         
@@ -1308,15 +1310,10 @@ class PTR_data(object):
         del self.zero_description
         del self.zero_units
         
-        del self.df_rprec
         del self.df_prec
         del self.prec_description
-        del self.prec_units
-
+        del self.prec_units        
         del self.df_racc
-        del self.df_acc
-        del self.acc_description
-        del self.acc_units
 
         del self.df_P_drift
         del self.df_U_drift
@@ -1340,18 +1337,34 @@ class PTR_data(object):
         masks = {}
         for key in self.masks.keys():
             masks[key] = self.masks[key][mask]
-        
-        PTR_data_object = PTR_data(self.df_data[mask], self.data_description, self.data_units, self.sst[mask], self.sst_units[mask],
-                                   self.df_P_drift[mask], self.df_U_drift[mask], self.df_T_drift[mask], self.df_P_inlet[mask], 
+
+        PTR_data_object = PTR_data(None, self.data_description, self.data_units, self.sst[mask], self.sst_units, 
+                                   self.df_P_drift[mask], self.df_U_drift[mask], self.df_T_drift, self.df_P_inlet, 
                                    masks, self.df_clusters)
         
-        PTR_data_object.Tr_PH1_to_PH2 = self.Tr_PH1_to_PH2
-        
+        PTR_data_object.df_data = self.df_data[mask]
+        PTR_data_object.df_absolute_counts = self.df_absolute_counts[mask]
+
         if not self.df_zero is None:
             PTR_data_object.df_zero = self.df_zero[mask]
-            PTR_data_object.zero_description = self.zero_description
-            PTR_data_object.zero_units = self.zero_units
+        if not self.df_zero_prec is None:
+            PTR_data_object.df_zero_prec = self.df_zero_prec[mask]
+        PTR_data_object.zero_description = self.zero_description
+        PTR_data_object.zero_prec_description = self.zero_prec_description
+        PTR_data_object.zero_units = self.zero_units
         
+        if not self.df_prec is None:
+            PTR_data_object.df_prec = self.df_prec[mask]
+        PTR_data_object.prec_description = self.prec_description
+        PTR_data_object.prec_units = self.prec_units
+        if not self.df_racc is None:
+            PTR_data_object.df_racc = self.df_racc[mask]
+
+        PTR_data_object.Tr_PH1_to_PH2 = self.Tr_PH1_to_PH2
+
+        PTR_data_object.FPH1 = self.FPH1
+        PTR_data_object.FPH2 = self.FPH2
+                
         return PTR_data_object
     
     def get_PTR_data_subsample_mz(self, mz_selection):
@@ -1385,7 +1398,6 @@ class PTR_data(object):
         
         # data resampling and relative precision
         self.df_data   = resampled.mean()
-        self.df_rprec  = self.df_prec/abs(self.df_data)
         
         # Correct total counts to allow calcluation according to Poisson later on
         self.df_absolute_counts = self.df_absolute_counts.resample(acc_interval,origin=origin,offset=offset).sum()
@@ -1396,6 +1408,8 @@ class PTR_data(object):
         self.df_U_drift = self.df_U_drift.resample(acc_interval,origin=origin,offset=offset).mean()
         self.df_T_drift = self.df_T_drift.resample(acc_interval,origin=origin,offset=offset).mean()
         self.df_P_inlet = self.df_P_inlet.resample(acc_interval,origin=origin,offset=offset).mean()
+        
+        self.sst = self.sst.resample(acc_interval, origin=origin,offset=offset).sum()
                 
         return None
     
@@ -1425,7 +1439,7 @@ class PTR_data(object):
         return counts
     
     def set_precision_poisson(self):
-        self.df_prec, self.df_rprec = self.get_precision_poisson()
+        self.df_prec = self.get_precision_poisson()
         
         return None
     
@@ -1435,7 +1449,7 @@ class PTR_data(object):
         df_rprec = df_prec/abs(self.df_absolute_counts)
         df_prec = abs(self.df_data)*df_rprec
         
-        return df_prec, df_rprec
+        return df_prec
         
     def transform_data_correction(self, selected_multiplier, default_multiplier = 1.):
         self.df_data = get_data_corrected(self.df_data, self.df_clusters, selected_multiplier, default_multiplier = 1.)
@@ -1456,10 +1470,11 @@ class PTR_data(object):
         
         return df_data_totalcounts
 
-    def get_zero(self, tdelta_buf_zero = dt.timedelta(minutes=1), tdelta_avg_zero=dt.timedelta(minutes=5), tdelta_min_zero=dt.timedelta(minutes=20), zero='constant', mute = False):
+    def get_zero(self, tdelta_buf_zero = dt.timedelta(minutes=1), tdelta_avg_zero=dt.timedelta(minutes=5), tdelta_min_zero=dt.timedelta(minutes=20), zero='interp', mute = False):
         if not 'zero_trimmed' in self.masks.keys():
             print('Warning, untrimmed zero mask used to infer zero measurements.')
             mask_calc_zero = msk_r.get_representative_mask_from_multiple_intervals(self.df_data, self.masks['zero'], tdelta_buf_zero, tdelta_avg_zero, tdelta_min_zero, mute=mute)
+            
         else:
             mask_calc_zero = msk_r.get_representative_mask_from_multiple_intervals(self.df_data, self.masks['zero_trimmed'], tdelta_buf_zero, tdelta_avg_zero, tdelta_min_zero, mute=mute)
         
@@ -1467,7 +1482,7 @@ class PTR_data(object):
         
         if ((mask_calc_zero is None) or
             (mask_calc_zero.sum() == 0)):
-            print('Error: No zero measurement available from {} to {}'.format(self.df_data.index.min().strftime(format='%Y-%m-%d %H:%M'),self.df_data.index.max().strftime(format='%Y-%m-%d %H:%M')))
+            print('Error: No zero measurement available from {} to {}'.format(self.df_data.index.min().strftime(format='%Y-%m-%d %H:%M %Z'),self.df_data.index.max().strftime(format='%Y-%m-%d %H:%M %Z')))
             raise ValueError
         
         # zero correction for the primary ions is not applicable
@@ -1524,27 +1539,25 @@ class PTR_data(object):
         
         return df_I_zero, df_I_zero_prec
 
-    def set_zero(self, tdelta_buf_zero = dt.timedelta(minutes=1), tdelta_avg_zero=dt.timedelta(minutes=5), tdelta_min_zero=dt.timedelta(minutes=20), zero='constant', mute = False):
+    def set_zero(self, tdelta_buf_zero = dt.timedelta(minutes=1), tdelta_avg_zero=dt.timedelta(minutes=5), tdelta_min_zero=dt.timedelta(minutes=20), zero='interp', mute = False):
         self.df_zero, self.df_zero_prec = self.get_zero(tdelta_buf_zero = tdelta_buf_zero, tdelta_avg_zero = tdelta_avg_zero, tdelta_min_zero=tdelta_min_zero, zero = zero, mute = mute)
         self.zero_description = '{}, zero values'.format(self.data_description)
+        self.zero_prec_description = 'Precision on zero values'
         self.zero_units = self.data_units
         
         return None
 
-    def get_data_zero_corrected(self, tdelta_buf_zero = dt.timedelta(minutes=1), tdelta_avg_zero=dt.timedelta(minutes=5), tdelta_min_zero=dt.timedelta(minutes=20), zero='constant', mute = False):
-        if self.zero_units == self.data_units:
-            df_I_zc = self.df_data - self.df_zero
-            df_I_zc_prec = (self.df_prec.pow(2)+self.df_zero_prec.pow(2)).pow(0.5)
-        else:
-            df_I_tmp, df_I_tmp_prec = self.get_zero(tdelta_buf_zero = tdelta_buf_zero, tdelta_avg_zero = tdelta_avg_zero, tdelta_min_zero=tdelta_min_zero, zero = zero, mute = mute)
-            df_I_zc = self.df_data - df_I_tmp
-            df_I_zc_prec = (self.df_prec.pow(2) + df_I_tmp_prec.pow(2)).pow(0.5)
+    def get_data_zero_corrected(self, tdelta_buf_zero = dt.timedelta(minutes=1), tdelta_avg_zero=dt.timedelta(minutes=5), tdelta_min_zero=dt.timedelta(minutes=20), zero='interp', mute = False):
+        if self.zero_units != self.data_units:
+            self.set_zero(tdelta_buf_zero = tdelta_buf_zero, tdelta_avg_zero = tdelta_avg_zero, tdelta_min_zero = tdelta_min_zero, zero = zero, mute = mute)
+        
+        df_I_zc = self.df_data - self.df_zero
+        df_I_zc_prec = (self.df_prec.pow(2)+self.df_zero_prec.pow(2)).pow(0.5)
         
         return df_I_zc, df_I_zc_prec
         
     def transform_data_subtract_zero(self, tdelta_buf_zero = dt.timedelta(minutes=1), tdelta_avg_zero=dt.timedelta(minutes=5), tdelta_min_zero=dt.timedelta(minutes=20), zero='constant', mute = False):
         self.df_data, self.df_prec = self.get_data_zero_corrected(tdelta_buf_zero=tdelta_buf_zero, tdelta_avg_zero=tdelta_avg_zero, tdelta_min_zero=tdelta_min_zero, zero = zero, mute = mute)
-        self.df_rprec = self.df_prec/abs(self.df_data)
         
         return None
 
@@ -1571,11 +1584,10 @@ class PTR_data(object):
         
         df_ncr = self.df_data.copy() # copy the original dataframe as to make sure we do not change it
         df_ncr_prec = self.df_prec.copy() # copy the original dataframe as to make sure we do not change it
-        df_ncr_rprec = self.df_rprec.copy() # copy the original dataframe as to make sure we do not change it
+        df_ncr_rprec = df_ncr_prec/abs(df_ncr)
         
         I_cr_21, I_cr_38 = df_ncr[self.mz_col_21], df_ncr[self.mz_col_38]
         I_cr_21_prec, I_cr_38_prec = df_ncr_prec[self.mz_col_21], df_ncr_prec[self.mz_col_38]
-        I_cr_21_rprec, I_cr_38_rprec = df_ncr_rprec[self.mz_col_21], df_ncr_rprec[self.mz_col_38]
         
         # Correct for Xr0 default
         #########################
@@ -1615,17 +1627,16 @@ class PTR_data(object):
         ###############################        
         df_ncr[self.mz_col_21], df_ncr[self.mz_col_38] = I_cr_21, I_cr_38
         df_ncr_prec[self.mz_col_21], df_ncr_prec[self.mz_col_38] = I_cr_21_prec, I_cr_38_prec
-        df_ncr_rprec[self.mz_col_21], df_ncr_rprec[self.mz_col_38] = I_cr_21_rprec, I_cr_38_rprec
 
-        return df_ncr, df_ncr_prec, df_ncr_rprec
+        return df_ncr, df_ncr_prec
     
     
     def transform_data_ncr(self, dict_Xr0={}, Xr0_default=1.):
-        self.df_data, self.df_prec, self.df_rprec = self.get_data_ncr(dict_Xr0, Xr0_default)
+        self.df_data, self.df_prec = self.get_data_ncr(dict_Xr0, Xr0_default)
         self.data_description = 'Normalised Ion count'
         self.data_units = 'ncps'
         
-        self.prec_description = 'Normalised Ion count'
+        self.prec_description = 'Precision on Normalised Ion count'
         self.prec_units = 'ncps'
 
         return None
@@ -1647,7 +1658,7 @@ class PTR_data(object):
         self.data_description = 'Transmission corrected normalised ion count'
         self.data_units = 'trcncps'
         
-        self.prec_description = 'Transmission corrected normalised ion count'
+        self.prec_description = 'Precision on Transmission corrected normalised ion count'
         self.prec_units = 'trcncps'
 
         return None
@@ -1719,13 +1730,13 @@ class PTR_data(object):
         # Set racc for calibrated compounds
         subset = df_ppbv_racc.columns.intersection(df_cc_coeff_racc.columns)
         df_ppbv_racc[subset] = 1.
-        df_ppbv_racc[subset] = df_ppbv_racc[subset].mul(df_cc_coeff_racc.iloc[0])
+        df_ppbv_racc[subset] = df_ppbv_racc[subset].mul(df_cc_coeff_racc[subset].iloc[0])
 
         # Correct prec for calibrated compounds
         df_tmp_prec = pd.DataFrame(0,index=df_ppbv_prec.index, columns=df_ppbv_prec.columns)
         subset = df_tmp_prec.columns.intersection(df_cc_coeff_rprec.columns)
-        df_tmp_prec[subset] = 1
-        df_tmp_prec[subset] = df_tmp_prec[subset].mul((df_cc_coeff_rprec*df_cc_coeff).iloc[0])
+        df_tmp_prec[subset] = 1.
+        df_tmp_prec[subset] = df_tmp_prec[subset].mul((df_cc_coeff_rprec*df_cc_coeff)[subset].iloc[0])
         
         df_ppbv_prec[subset] = (df_ppbv_prec[subset].pow(2)+df_tmp_prec[subset].pow(2)).pow(0.5)
         del [df_tmp_prec]
@@ -1735,19 +1746,16 @@ class PTR_data(object):
             df_ppbv[mz_col] = self.df_data[mz_col]
             df_ppbv_racc[mz_col] = 0.
         
-        df_ppbv_acc = df_ppbv_racc*df_ppbv
-        df_ppbv_rprec = df_ppbv_prec/df_ppbv
-        
-        return df_ppbv, df_ppbv_prec, df_ppbv_rprec, df_ppbv_acc, df_ppbv_racc
+        return df_ppbv, df_ppbv_prec, df_ppbv_racc
     
     def transform_data_VMR(self, df_cc_coeff, df_cc_coeff_rprec, df_cc_coeff_racc, k_reac_mz = {}, k_reac_default = 2, multiplier={}):
-        self.df_data, self.df_prec, self.df_rprec, self.df_acc, self.df_racc = self.get_data_VMR(df_cc_coeff, df_cc_coeff_rprec, df_cc_coeff_racc, 
-                                                                                                 k_reac_mz, k_reac_default, multiplier)
+        self.df_data, self.df_prec, self.df_racc = self.get_data_VMR(df_cc_coeff, df_cc_coeff_rprec, df_cc_coeff_racc, 
+                                                                                    k_reac_mz, k_reac_default, multiplier)
         
         self.data_description = 'Mixing Ratio'
         self.data_units = 'ppbv'
         
-        self.prec_description = 'Mixing Ratio'
+        self.prec_description = 'Precision on Mixing Ratio'
         self.prec_units = 'ppbv'
         
         return None
@@ -1921,7 +1929,7 @@ class PTR_data(object):
                             (Xrs[-1] < 0)):
                             Xrs = Xrs[:-1]
                         
-                    tmp, tmp_prec, tmp_rprec = tmp_PTR_data.get_data_ncr({mz_col:Xrs[i]},Xr0_default)[mask_calc_calib]
+                    tmp, tmp_prec = tmp_PTR_data.get_data_ncr({mz_col:Xrs[i]},Xr0_default)[mask_calc_calib]
                     r_std = tmp[mz_col].std()/abs(tmp[mz_col]).mean()
                 
                     r_stds.append(r_std)
@@ -1929,7 +1937,7 @@ class PTR_data(object):
                 r_stds = []
                 Xrs = scan
                 for Xr in Xrs:
-                    tmp, tmp_prec, tmp_rprec = tmp_PTR_data.get_data_ncr({mz_col:Xr},Xr0_default)[mask_calc_calib]
+                    tmp, tmp_prec = tmp_PTR_data.get_data_ncr({mz_col:Xr},Xr0_default)[mask_calc_calib]
                     r_std = tmp[mz_col].std()/abs(tmp[mz_col]).mean()
                     r_stds.append(r_std)
             
@@ -1946,7 +1954,7 @@ class PTR_data(object):
             axs[0].legend()
             
             for iXr0 in [1,0,Xrs[i]]:
-                tmp, tmp_prec, tmp_rprec = tmp_PTR_data.get_data_ncr({mz_col:iXr0},Xr0_default)[mask_calc_calib]
+                tmp, tmp_prec = tmp_PTR_data.get_data_ncr({mz_col:iXr0},Xr0_default)[mask_calc_calib]
                 axs[1].plot(np.arange(len(tmp[mz_col])),tmp[mz_col],label='Xr,0={:.3f}'.format(iXr0),linewidth=1)
                 axs[1].legend()
                 axs[1].set_xlabel('sample')
@@ -2230,6 +2238,33 @@ class PTR_data(object):
                 ),
             )
             
+            da_prec = xr.DataArray(
+                data=self.df_prec[self.masks[key]].values,
+                dims=["time","mz"],
+                coords=dict(
+                    mz=self.df_data.columns.values,
+                    time=time,
+                ),
+                attrs=dict(
+                    description=self.prec_description,
+                    units=self.prec_units,
+                ),
+            )
+            
+            da_acc = xr.DataArray(
+                data=self.df_racc[self.masks[key]].mul(abs(self.df_data[self.masks[key]])).values,
+                dims=["time","mz"],
+                coords=dict(
+                    mz=self.df_data.columns.values,
+                    time=time,
+                ),
+                attrs=dict(
+                    description=self.data_description,
+                    units=self.data_units,
+                ),
+            )
+
+            
             tmp_mask = self.df_clusters.index.isin(mz)
             limits_min = xr.DataArray(
                 data=self.df_clusters[tmp_mask].cluster_min.values,
@@ -2315,8 +2350,24 @@ class PTR_data(object):
                     units="ppbv trcncps-1",
                 ),
             )
-            
-            data_vars = {'Signal':da_data,'cluster_min':limits_min,'cluster_max':limits_max,'Xr0':Xr0,'k_reac':k_reac,'multiplier':multiplier,'transmission':transmission,'calibration':calibration}
+                        
+            da_sst = xr.DataArray(
+                data=self.sst[self.masks[key]].values,
+                dims=["time"],
+                coords=dict(
+                    time=time,
+                ),
+                attrs=dict(
+                    description='Measurement time interval',
+                    units=self.sst_units,
+                ),
+            )
+
+            data_vars = {'Signal':da_data,'Signal_precision':da_prec,'Signal_accuracy':da_acc,
+                         'cluster_min':limits_min,'cluster_max':limits_max,
+                         'Xr0':Xr0,'k_reac':k_reac,'multiplier':multiplier,
+                         'transmission':transmission,'calibration':calibration,
+                         'MeasurementsTimeInterval':da_sst}
             if not (self.df_zero is None):
                 da_zero = xr.DataArray(
                     data=self.df_zero[self.masks[key]].values,
@@ -2331,6 +2382,20 @@ class PTR_data(object):
                     ),
                 )
                 data_vars['zero'] = da_zero
+
+                da_zero_prec = xr.DataArray(
+                    data=self.df_zero_prec[self.masks[key]].values,
+                    dims=["time","mz"],
+                    coords=dict(
+                        mz=self.df_zero.columns.values,
+                        time=time,
+                    ),
+                    attrs=dict(
+                        description=self.zero_prec_description,
+                        units=self.zero_units,
+                    ),
+                )
+                data_vars['zero_precision'] = da_zero_prec
 
 
             file_name = self.get_output_filename(out_time, key, campaign, instrument, file_format)
