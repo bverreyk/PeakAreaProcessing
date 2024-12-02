@@ -984,7 +984,7 @@ class TOF_campaign(object):
         return df_cc_clusters, df_cc_clusters_rprec, df_cc_clusters_racc
     
 
-    def process(self, ongoing = False, t_start = None, t_stop=None, masks = [], output_threshold = 1, file_format = 'conf0', masses=[33.033, 45.033, 47.049, 59.049, 71.049, 73.065, 69.070, 93.070, 107.086, 121.101, 137.132]):
+    def process(self, ongoing = False, t_start = None, t_stop=None, masks = [], output_threshold = 1, file_format = 'conf0', masses=[33.033]):
         '''
         masks: array of strings, contains the masks for which output is asked,
             Usefull for filtering out profile measurements where no EC can be calculated
@@ -1139,13 +1139,17 @@ class TOF_campaign(object):
                 PTR_data_object.transform_data_ncr(dict_Xr0,self.processing_config['Xr0_default'])                                                      # Normalise signal
                 PTR_data_object.transform_data_trcnrc(df_tr_coeff)                                                                                      # Correct for transmission
                 PTR_data_object.transform_data_VMR(df_cc_coeff,df_cc_coeff_rprec,df_cc_coeff_racc,k_reac_mz,k_reac_default,multiplier)                  # Transform to VMR, use transmission corrected calibration coefficients when available, otherwise use first principles.
-                #PTR_data_object.set_zero(**kw_zero,mute=True)                                                                                           # Set zero dataframe
-                #PTR_data_object.transform_data_subtract_zero(**kw_zero, mute = True)                                                                    # Subtract zero
+                PTR_data_object.set_zero(**kw_zero,mute=True)                                                                                           # Set zero dataframe
+                PTR_data_object.transform_data_subtract_zero(**kw_zero, mute = True)                                                                    # Subtract zero
                 
                 # Save the data
                 ###############
                 if 'EBAS' in file_format:
-                    PTR_data_object.save_output_EBAS(dir_o, masses = masses, file_format = file_format):
+                    dir_o = '{1}{2}{0}{3}{0}{4}{0}{5}{0}'.format(os.sep,self.dir_base,start.year,self.instrument,'Nominal',self.data_output_level)
+                    check_create_output_dir(dir_o)
+                    dir_o += start.strftime('%m') + os.sep
+                    check_create_output_dir(dir_o)
+                    PTR_data_object.save_output_EBAS(dir_o, masses = masses, file_format = file_format)
 
                 else:
                     n_outputs = np.ceil((stop - start)/self.processing_config['output_interval'])
@@ -1231,8 +1235,8 @@ def get_data_corrected(df_I, df_clusters, selected_multiplier, default_multiplie
     return df_I
 
 def to_matlabtime(dt_ax):
-    dt_ax = dt_ax - dt.datetime(year=2024,month=1,day=1,hour=0,second=1,tzinfo=dt.timezone(dt.timedelta(hours=0)))
-    dt_ax = 739252+(dt_ax/dt.timedelta(hours=24))
+    dt_ax = dt_ax - dt.datetime(year=2024,month=1,day=1,hour=0,second=0,tzinfo=dt.timezone(dt.timedelta(hours=0)))
+    dt_ax = 739252.+(dt_ax/dt.timedelta(hours=24))
 
     return dt_ax
 
@@ -2217,10 +2221,10 @@ class PTR_data(object):
         else:
             mz_sel = mz_r.select_mz_clusters_from_exact(masses, self.df_clusters)
     
-        df_data = self.df_data[mz_sel]
-        df_prec = self.df_prec[mz_sel]
-        df_DL = 3.*self.df_zero_prec[mz_sel]
-        df_expUnc = 2.*(self.df_prec[mz_sel].pow(2)+(self.df_data[mz_sel]*self.df_racc[mz_sel]).pow(2)).pow(0.5)
+        df_data = self.df_data[mz_sel]*1.e3
+        df_prec = self.df_prec[mz_sel]*1.e3
+        df_DL = 3.*self.df_zero_prec[mz_sel]*1.e3
+        df_expUnc = 2.*(self.df_prec[mz_sel].pow(2)+(self.df_data[mz_sel]*self.df_racc[mz_sel]).pow(2)).pow(0.5)*1.e3
         
         mask = np.zeros(len(self.masks['invalid']))
         setup_flags = np.array(self.masks['invalid']*0.999)
@@ -2238,8 +2242,10 @@ class PTR_data(object):
         mask += self.masks['K8_trimmed']
         setup_flags += (mask==0)*0.999
         if (mask>1).sum() >= 1:
-            print('Error, double masked points')
-            raise ValueError
+            print('Error, {} multi-masked points: flags associated points,'.format((mask>1).sum()))
+            print(df_data.index[mask>1])
+            print('Setting flag to 0.999')
+            setup_flags[mask>1] = 0.999
         
         df_flag = pd.DataFrame(1, index=df_data.index, columns=df_data[mz_sel].columns)
         df_flag = df_flag.mul(setup_flags,axis=0)
@@ -2258,6 +2264,8 @@ class PTR_data(object):
         df_concat['t_start'] = df_concat.index
         df_concat['t_stop']  = df_concat.t_start+pd.to_timedelta(self.sst*1.e-3,unit='s')
     
+        df_concat.fillna(-999, inplace = True)
+    
         if file_format == 'EBAS_crist_pp':
             df_concat['t_start'] = to_matlabtime(df_concat['t_start'])
             df_concat['t_stop'] = to_matlabtime(df_concat['t_stop'])
@@ -2269,12 +2277,13 @@ class PTR_data(object):
             column_order.append('{:.4f}_prec'.format(mz))
             column_order.append('{:.4f}_flag'.format(mz))
         
-        fname = 'EBAS_{}.txt'.format(time.strftime('%Y%m%d-%H%M%S')
+        fname = 'EBAS_{}'.format(df_concat.index.min().strftime('%Y%m%d-%H%M%S'))
         
-        df_concat[column_order].to_csv('{}{}{}.txt'.format(dir_o,os.sep,fname), sep = '\t')
+        df_concat[column_order].to_csv('{}{}{}.csv'.format(dir_o,os.sep,fname))
+        np.savetxt('{}{}{}.txt'.format(dir_o,os.sep,fname), df_concat[column_order].values, delimiter='\t')
     
         return None
-    
+   
     
     def save_output(self, dir_o, campaign, instrument, df_tr_coeff, df_cc_coeff, masks = [], threshold = 1, file_format = 'conf0', time_info=None, processing_config={}):
         # Save the processed data
