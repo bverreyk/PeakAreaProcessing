@@ -984,7 +984,7 @@ class TOF_campaign(object):
         return df_cc_clusters, df_cc_clusters_rprec, df_cc_clusters_racc
     
 
-    def process(self, ongoing = False, t_start = None, t_stop=None, masks = [], output_threshold = 1, file_format = 'conf0'):
+    def process(self, ongoing = False, t_start = None, t_stop=None, masks = [], output_threshold = 1, file_format = 'conf0', masses=[33.033, 45.033, 47.049, 59.049, 71.049, 73.065, 69.070, 93.070, 107.086, 121.101, 137.132]):
         '''
         masks: array of strings, contains the masks for which output is asked,
             Usefull for filtering out profile measurements where no EC can be calculated
@@ -1139,28 +1139,32 @@ class TOF_campaign(object):
                 PTR_data_object.transform_data_ncr(dict_Xr0,self.processing_config['Xr0_default'])                                                      # Normalise signal
                 PTR_data_object.transform_data_trcnrc(df_tr_coeff)                                                                                      # Correct for transmission
                 PTR_data_object.transform_data_VMR(df_cc_coeff,df_cc_coeff_rprec,df_cc_coeff_racc,k_reac_mz,k_reac_default,multiplier)                  # Transform to VMR, use transmission corrected calibration coefficients when available, otherwise use first principles.
-                PTR_data_object.set_zero(**kw_zero,mute=True)                                                                                           # Set zero dataframe
-                PTR_data_object.transform_data_subtract_zero(**kw_zero, mute = True)                                                                    # Subtract zero
+                #PTR_data_object.set_zero(**kw_zero,mute=True)                                                                                           # Set zero dataframe
+                #PTR_data_object.transform_data_subtract_zero(**kw_zero, mute = True)                                                                    # Subtract zero
                 
                 # Save the data
                 ###############
-                n_outputs = np.ceil((stop - start)/self.processing_config['output_interval'])
-                for i_output in np.arange(n_outputs):
-                    t_start = start+i_output*self.processing_config['output_interval']
-                    t_end   = t_start+self.processing_config['output_interval']
-                    
-                    tmp = PTR_data_object.get_PTR_data_subsample_time(t_start, t_end)
-                    dir_o = '{1}{2}{0}{3}{0}{4}{0}{5}{0}'.format(os.sep,self.dir_base,start.year,self.instrument,'Nominal',self.data_output_level)
-                    check_create_output_dir(dir_o)
-                    dir_o += t_start.strftime('%m') + os.sep
-                    check_create_output_dir(dir_o)
-                    if ((self.processing_config['output_interval'] is None) or 
-                        (self.processing_config['output_interval'] < dt.timedelta(hours=24))):
-                        dir_o += t_start.strftime('%d') + os.sep
+                if 'EBAS' in file_format:
+                    PTR_data_object.save_output_EBAS(dir_o, masses = masses, file_format = file_format):
+
+                else:
+                    n_outputs = np.ceil((stop - start)/self.processing_config['output_interval'])
+                    for i_output in np.arange(n_outputs):
+                        t_start = start+i_output*self.processing_config['output_interval']
+                        t_end   = t_start+self.processing_config['output_interval']
+                        
+                        tmp = PTR_data_object.get_PTR_data_subsample_time(t_start, t_end)
+                        dir_o = '{1}{2}{0}{3}{0}{4}{0}{5}{0}'.format(os.sep,self.dir_base,start.year,self.instrument,'Nominal',self.data_output_level)
                         check_create_output_dir(dir_o)
-                    
-                    tmp.save_output(dir_o, self.name, self.instrument, df_tr_coeff, df_cc_coeff, masks=masks,threshold=output_threshold,file_format=file_format,time_info=self.time_info, processing_config=self.processing_config)
-                    del tmp
+                        dir_o += t_start.strftime('%m') + os.sep
+                        check_create_output_dir(dir_o)
+                        if ((self.processing_config['output_interval'] is None) or 
+                            (self.processing_config['output_interval'] < dt.timedelta(hours=24))):
+                            dir_o += t_start.strftime('%d') + os.sep
+                            check_create_output_dir(dir_o)
+                        
+                        tmp.save_output(dir_o, self.name, self.instrument, df_tr_coeff, df_cc_coeff, masks=masks,threshold=output_threshold,file_format=file_format,time_info=self.time_info, processing_config=self.processing_config)
+                        del tmp
                 del PTR_data_object
                 
                 # Setup the next cycle of processing
@@ -1222,11 +1226,16 @@ def get_data_corrected(df_I, df_clusters, selected_multiplier, default_multiplie
     selected_multiplier.columns = [mz_r.select_mz_cluster_from_exact(mz, df_clusters, tol = 0.01, mute = True) for mz in selected_multiplier.columns]
     
     subset = df_I.columns.intersection(selected_multiplier.columns)
-    df_I[subset] = df_I[subset]*selected_multiplier[subset].iloc[0]/default_multiplier
+    df_I[subset] = (df_I[subset]*selected_multiplier[subset].iloc[0]/default_multiplier).astype(np.float64)
 
     return df_I
 
-    
+def to_matlabtime(dt_ax):
+    dt_ax = dt_ax - dt.datetime(year=2024,month=1,day=1,hour=0,second=1,tzinfo=dt.timezone(dt.timedelta(hours=0)))
+    dt_ax = 739252+(dt_ax/dt.timedelta(hours=24))
+
+    return dt_ax
+
 #####################
 ## PTR data object ##
 #####################
@@ -1690,10 +1699,10 @@ class PTR_data(object):
         ############################################
         # select uncalibrated compounds specifically
         subset = df_ppbv.columns.difference(df_cc_coeff.keys())
-        df_ppbv[subset] = df_ppbv[subset]/CC_kinetic
+        df_ppbv[subset] = df_ppbv[subset]/CC_kinetic.astype(np.float64)
         
         # Scale precision for uncalibrated and set accuracy to 50% for all compounds
-        df_ppbv_prec[subset] = df_ppbv_prec[subset]/CC_kinetic
+        df_ppbv_prec[subset] = df_ppbv_prec[subset]/CC_kinetic.astype(np.float64)
         
         # Corrections due to deviation of default reaction rate constants
         tmp = pd.DataFrame(k_reac_mz, index=[0])
@@ -2201,6 +2210,71 @@ class PTR_data(object):
             outName = '{}_{}_{}_{}.h5'.format(key.split('_')[0],campaign,instrument,time.strftime('%Y_%m_%d__%H_%M_%S'))
             
         return outName
+
+    def save_output_EBAS(self, dir_o, masses = [], file_format = 'EBAS_crist_pp'):
+        if len(masses)==0:
+            mz_sel = self.df_data.columns.values
+        else:
+            mz_sel = mz_r.select_mz_clusters_from_exact(masses, self.df_clusters)
+    
+        df_data = self.df_data[mz_sel]
+        df_prec = self.df_prec[mz_sel]
+        df_DL = 3.*self.df_zero_prec[mz_sel]
+        df_expUnc = 2.*(self.df_prec[mz_sel].pow(2)+(self.df_data[mz_sel]*self.df_racc[mz_sel]).pow(2)).pow(0.5)
+        
+        mask = np.zeros(len(self.masks['invalid']))
+        setup_flags = np.array(self.masks['invalid']*0.999)
+        setup_flags += self.masks['zero']*0.684
+        setup_flags += self.masks['calib']*0.683
+    
+        mask += self.masks['invalid']
+        mask += self.masks['zero']
+        mask += self.masks['calib']
+        # Setup different levels as valid but with local contamination
+        for level in np.arange(1,8):
+            setup_flags += self.masks['K{}_trimmed'.format(level)]*0.559
+            mask += self.masks['K{}_trimmed'.format(level)]
+    
+        mask += self.masks['K8_trimmed']
+        setup_flags += (mask==0)*0.999
+        if (mask>1).sum() >= 1:
+            print('Error, double masked points')
+            raise ValueError
+        
+        df_flag = pd.DataFrame(1, index=df_data.index, columns=df_data[mz_sel].columns)
+        df_flag = df_flag.mul(setup_flags,axis=0)
+    
+        df_flag[((df_data<df_DL) & 
+                 (df_flag != 0.684) &
+                 (df_flag != 0.999))] = 0.147
+    
+        df_data.columns = ['{:.4f}'.format(col) for col in df_data.columns]
+        df_expUnc.columns = ['{:.4f}_expUnc'.format(col) for col in df_expUnc.columns]
+        df_prec.columns = ['{:.4f}_prec'.format(col) for col in df_prec.columns]
+        df_flag.columns = ['{:.4f}_flag'.format(col) for col in df_flag.columns]
+        
+        df_concat = pd.concat([df_data, df_expUnc, df_prec, df_flag],axis=1)
+    
+        df_concat['t_start'] = df_concat.index
+        df_concat['t_stop']  = df_concat.t_start+pd.to_timedelta(self.sst*1.e-3,unit='s')
+    
+        if file_format == 'EBAS_crist_pp':
+            df_concat['t_start'] = to_matlabtime(df_concat['t_start'])
+            df_concat['t_stop'] = to_matlabtime(df_concat['t_stop'])
+            
+        column_order = ['t_start', 't_stop']
+        for mz in mz_sel:
+            column_order.append('{:.4f}'.format(mz))
+            column_order.append('{:.4f}_expUnc'.format(mz))
+            column_order.append('{:.4f}_prec'.format(mz))
+            column_order.append('{:.4f}_flag'.format(mz))
+        
+        fname = 'EBAS_{}.txt'.format(time.strftime('%Y%m%d-%H%M%S')
+        
+        df_concat[column_order].to_csv('{}{}{}.txt'.format(dir_o,os.sep,fname), sep = '\t')
+    
+        return None
+    
     
     def save_output(self, dir_o, campaign, instrument, df_tr_coeff, df_cc_coeff, masks = [], threshold = 1, file_format = 'conf0', time_info=None, processing_config={}):
         # Save the processed data
@@ -2250,20 +2324,6 @@ class PTR_data(object):
                     units=self.prec_units,
                 ),
             )
-            
-            da_acc = xr.DataArray(
-                data=self.df_racc[self.masks[key]].mul(abs(self.df_data[self.masks[key]])).values,
-                dims=["time","mz"],
-                coords=dict(
-                    mz=self.df_data.columns.values,
-                    time=time,
-                ),
-                attrs=dict(
-                    description=self.data_description,
-                    units=self.data_units,
-                ),
-            )
-
             
             tmp_mask = self.df_clusters.index.isin(mz)
             limits_min = xr.DataArray(
@@ -2363,7 +2423,7 @@ class PTR_data(object):
                 ),
             )
 
-            data_vars = {'Signal':da_data,'Signal_precision':da_prec,'Signal_accuracy':da_acc,
+            data_vars = {'Signal':da_data,'Signal_precision':da_prec,
                          'cluster_min':limits_min,'cluster_max':limits_max,
                          'Xr0':Xr0,'k_reac':k_reac,'multiplier':multiplier,
                          'transmission':transmission,'calibration':calibration,
@@ -2396,7 +2456,21 @@ class PTR_data(object):
                     ),
                 )
                 data_vars['zero_precision'] = da_zero_prec
-
+                
+            if not (self.df_racc is None):
+                da_acc = xr.DataArray(
+                    data=self.df_racc[self.masks[key]].mul(abs(self.df_data[self.masks[key]])).values,
+                    dims=["time","mz"],
+                    coords=dict(
+                        mz=self.df_data.columns.values,
+                        time=time,
+                    ),
+                    attrs=dict(
+                        description=self.data_description,
+                        units=self.data_units,
+                    ),
+                )
+                data_vars['Signal_accuracy'] = da_acc
 
             file_name = self.get_output_filename(out_time, key, campaign, instrument, file_format)
             f_output = '{}{}'.format(dir_o, file_name)
