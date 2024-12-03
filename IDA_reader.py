@@ -19,20 +19,22 @@ except:
 ##########################
 class IDA_data(object):
     '''IDA analysis output data object.'''
-    def __init__(self, f_hdf5, dict_misc, dict_reaction, tz_info = dt.timezone.utc):
+    def __init__(self, f_hdf5, dict_misc, dict_reaction, dict_dataCollection, tz_info = dt.timezone.utc):
         self.hdf5 = f_hdf5
         
         self.data = None
         self.data_units = None
         
+        self.ptr_reaction = None
+        self.dataCollection = None
         self.ptr_misc = None
         if not any([label in ('masks','P_inlet') for label in dict_misc.keys()]):
             print('dict_misc not containing all required labels')
             raise ValueError
-            
-        self.ptr_reaction = None
+        
         self.dict_misc = dict_misc
         self.dict_reaction = dict_reaction
+        self.dict_dataCollection = dict_dataCollection
         
         self.tz_info = tz_info
     
@@ -96,11 +98,29 @@ class IDA_data(object):
         
         df_P_inlet = self.ptr_misc[self.dict_misc['P_inlet']['column']]*correction
         
-        
         masks = self.get_masks()
         
-        return df_data, data_description, data_units, df_P_drift, df_U_drift, df_T_drift, df_P_inlet, masks
+        sst, sst_units = self.get_single_spec_time()
+        
+        return df_data, data_description, data_units, sst, sst_units, df_P_drift, df_U_drift, df_T_drift, df_P_inlet, masks
     
+    def get_single_spec_time(self):
+        if self.dataCollection is None:
+            self.init_dataCollection()
+        
+        to_get = self.dict_dataCollection['single_spec_time']['column']
+        units  = self.dict_dataCollection['single_spec_time']['units']
+        match  = self.dict_dataCollection['single_spec_time']['match']
+        
+        if match == 'exact':
+            sst = self.dataCollection[to_get]
+        else:
+            print('Error, single spectrum time match method not set, returning NaN')
+            sst = np.NaN
+            
+        return sst, units
+        
+        
     def get_dataframe_from_hdf5(self, group):
         '''
         Read groups from IDA output files organised in hdf5 format into pandas dataframe with time as index and the description as columns.
@@ -213,7 +233,10 @@ class IDA_data(object):
     def init_ptr_reaction(self):
         self.ptr_reaction = self.get_dataframe_from_hdf5('PTR-Reaction')
         return None
-
+    
+    def init_dataCollection(self):
+        self.dataCollection = self.get_dataframe_from_hdf5('DataCollection')
+        return None
         
     def get_masks(self):
         if self.ptr_misc is None:
