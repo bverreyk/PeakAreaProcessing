@@ -31,7 +31,7 @@ except:
     import IDA_reader as IDA_reader
     import mask_routines as msk_r
 
-__version__ = 'v1.0.0'
+__version__ = 'v1.0.1'
 
 ######################
 ## Support routines ##
@@ -710,6 +710,8 @@ class TOF_campaign(object):
                 df_stability.ctime    = pd.to_datetime(df_stability.ctime)
                 df_anc.ctime    = pd.to_datetime(df_anc.ctime)
                 
+            df_calibrations, df_calibrations_rprec, df_calibrations_racc = deconstruct_df_calibrations(df_calibrations)
+            
             # Correct calibration factors here to obtain it in trcncps ppbv-1
             df_cc_tmp = df_calibrations.copy()
             df_cc_tmp.drop(['I_cps_H3O1_21', 'I_cps_H5O2_38','file','ctime'],axis=1,inplace=True)
@@ -726,8 +728,6 @@ class TOF_campaign(object):
             df_tr_interp.columns = [str(mz) for mz in df_tr_interp.columns]
             subset = df_tr_interp.columns.intersection(df_calibrations.columns)
             df_calibrations[subset] = df_calibrations[subset]/df_tr_interp[subset]
-            
-            df_calibrations, df_calibrations_rprec, df_calibrations_racc = deconstruct_df_calibrations(df_calibrations)
             
             # Correct calibration factors here to obtain it in trcncps ppbv-1
             df_cc_tmp = df_calibrations.copy()
