@@ -203,6 +203,7 @@ class IDA_data(object):
 
                     for val in values:
                         if val != closest:
+                            print('dropping double value further from reference mass')
                             del renaming[val]
         
         self.data.drop(columns=[col for col in self.data if col not in renaming.keys()],inplace=True)

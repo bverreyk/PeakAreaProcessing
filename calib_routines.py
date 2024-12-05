@@ -194,7 +194,7 @@ def get_transmissionCoefficient(ncr_df, mask_calc_zero, mask_calc_calib, mz_col,
     
     return Tr
 
-def get_Tr_PH1_to_PH2(df, mask_calc_zero, mask_calc_calib, mz_col_21, mz_col_38, mz_1_anc, mz_2_anc, N, t_reac, Tr_PH1_to_PH2_ini = 1, nsteps = 10, eps = 0.01, verbose = False):
+def get_Tr_PH1_to_PH2(df, mask_calc_zero, mask_calc_calib, mz_col_21, mz_col_38, mz_1_anc, mz_2_anc, N, t_reac, FPH1 = 500, FPH2 = 624.2, Tr_PH1_to_PH2_ini = 1, nsteps = 10, eps = 0.01, Xr0_default = 1, verbose = False):
     '''
     Get Tr_PH1_to_PH2 used for normalisation of the count rates based on an itterative proccess.
     Two other calibrated masses close to mz = 38 are used to interpolate the expected value of Tr_PH1_to_PH2 and compare with the initial guess.
@@ -207,18 +207,20 @@ def get_Tr_PH1_to_PH2(df, mask_calc_zero, mask_calc_calib, mz_col_21, mz_col_38,
     # Don't calculate ncr for all columns in the different loops to save time
     selected = [mz_col_21,mz_col_38,mz_1_anc['col'],mz_2_anc['col']]
     XR0={}
-    if (('Xr0' in mz_1_anc.keys()) and
-        ('Xr0' in mz_2_anc.keys())):
+    if 'Xr0' in mz_1_anc.keys() and  mz_1_anc['Xr0'] != Xr0_default:
         XR0[mz_1_anc['col']] = mz_1_anc['Xr0']
+        print('--- Taking into account Xr0 to compute Tr_PH1_to_PH2 (mz = {}, Xr0 = {} ---'.format(mz_1_anc['col'], mz_1_anc['Xr0']))
+        
+    if 'Xr0' in mz_2_anc.keys() and  mz_2_anc['Xr0'] != Xr0_default:
         XR0[mz_2_anc['col']] = mz_2_anc['Xr0']
-        print('--- Taking into account Xr0 to compute Tr_PH1_to_PH2 ---')
+        print('--- Taking into account Xr0 to compute Tr_PH1_to_PH2 (mz = {}, Xr0 = {} ---'.format(mz_2_anc['col'], mz_2_anc['Xr0']))
         
     tdf = df.drop(columns=[col for col in df if col not in selected], inplace=False)
 
     success = False
     Tr_PH1_to_PH2 = Tr_PH1_to_PH2_ini
     for i in np.arange(nsteps):
-        ncr_tr_df = get_normalisedCountRate_df(tdf, mz_col_21, mz_col_38, Tr_PH1_to_PH2_ini,XR0=XR0)
+        ncr_tr_df = get_normalisedCountRate_df(tdf, mz_col_21, mz_col_38, Tr_PH1_to_PH2_ini,FPH1=FPH1,FPH2=FPH2,XR0=XR0,Xr0_default=Xr0_default)
 
         Tr_1 = get_transmissionCoefficient(ncr_tr_df, mask_calc_zero, mask_calc_calib,  
                                            mz_1_anc['col'],  mz_1_anc['mixingRatio_driftTube'],  

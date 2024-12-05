@@ -31,7 +31,7 @@ except:
     import IDA_reader as IDA_reader
     import mask_routines as msk_r
 
-__version__ = 'v1.1.0'
+__version__ = 'v1.1.1'
 
 ######################
 ## Support routines ##
@@ -1911,7 +1911,9 @@ class PTR_data(object):
             print(self.data_units)
             raise ValueError
         
-        self.Tr_PH1_to_PH2 = calib_r.get_Tr_PH1_to_PH2(self.df_data, mask_calc_zero, mask_calc_calib, self.mz_col_21, self.mz_col_38, anc[0], anc[1], N_DT, t_reac)
+        self.Tr_PH1_to_PH2 = calib_r.get_Tr_PH1_to_PH2(self.df_data, mask_calc_zero, mask_calc_calib, 
+                                                       self.mz_col_21, self.mz_col_38, anc[0], anc[1], N_DT, t_reac,
+                                                       FPH1=self.FPH1, FPH2=self.FPH2,Xr0_default=Xr0_default)
         
         N = 21
         Xr0 = {}
@@ -2049,8 +2051,12 @@ class PTR_data(object):
             mz_anc['mixingRatio_driftTube'] = calib_r.get_mixingRatio_driftTube_Calib(Q_calib,Q_PTRMS,Q_zero_air,mixrat_bottle[mz])
             mz_anc['k'] = k[mz]
             mz_anc['fractioning'] = fr[mz]
-            mz_anc['Xr0'] = Xr0_default
-        
+            if mz_anc['col'] in dict_Xr0.keys():
+                mz_anc['Xr0'] = dict_Xr0[mz_anc['col']]
+            else:
+                mz_anc['Xr0'] = Xr0_default
+
+            
             anc.append(mz_anc)
         
         t_reac, t_reac_unc, N_DT, N_DT_unc = calib_r.get_ancilarry_PTRT_drift_calib_av_unc(self.df_P_drift.mean(),self.df_P_drift.std(),
@@ -2068,7 +2074,9 @@ class PTR_data(object):
             print(self.data_units)
             raise ValueError
         
-        self.Tr_PH1_to_PH2 = calib_r.get_Tr_PH1_to_PH2(self.df_data, mask_calc_zero, mask_calc_calib, self.mz_col_21, self.mz_col_38, anc[0], anc[1], N_DT, t_reac)
+        self.Tr_PH1_to_PH2 = calib_r.get_Tr_PH1_to_PH2(self.df_data, mask_calc_zero, mask_calc_calib, 
+                                                       self.mz_col_21, self.mz_col_38, anc[0], anc[1], N_DT, t_reac, 
+                                                       FPH1=self.FPH1, FPH2=self.FPH2,Xr0_default=Xr0_default)
         
         # Get transmissions and calibration coefficients
         ################################################
