@@ -31,7 +31,7 @@ except:
     import IDA_reader as IDA_reader
     import mask_routines as msk_r
 
-__version__ = 'v1.0.1'
+__version__ = 'v1.0.2'
 
 ######################
 ## Support routines ##
@@ -679,7 +679,7 @@ class TOF_campaign(object):
         check_create_output_dir(dir_o_cal)
         return dir_o_cal
     
-    def get_archived_calibrations(self):
+    def get_archived_calibrations(self, tr_corrected=True, deconstructed=True):
         year = self.year[0]
         print('Warning: calibration mixtures is expected not to change from the first year')
         base_path = '{1}{0}{2}{0}{3}{0}Misc{0}Calibrations{0}input{0}'.format(os.sep,self.dir_base,year,self.instrument)
@@ -709,43 +709,31 @@ class TOF_campaign(object):
                 df_transmission.ctime = pd.to_datetime(df_transmission.ctime)
                 df_stability.ctime    = pd.to_datetime(df_stability.ctime)
                 df_anc.ctime    = pd.to_datetime(df_anc.ctime)
+            
+            if deconstructed:
+                df_calibrations, df_calibrations_rprec, df_calibrations_racc = deconstruct_df_calibrations(df_calibrations)
+            else:
+                df_calibrations_rprec = None
+                df_calibrations_racc  = None
+            
+            if tr_corrected:
+                # Correct calibration factors here to obtain it in trcncps ppbv-1
+                df_cc_tmp = df_calibrations.copy()
+                df_cc_tmp.drop(['I_cps_H3O1_21', 'I_cps_H5O2_38','file','ctime'],axis=1,inplace=True)
+                df_cc_tmp.columns = [float(mz) for mz in df_cc_tmp.columns]
                 
-            df_calibrations, df_calibrations_rprec, df_calibrations_racc = deconstruct_df_calibrations(df_calibrations)
-            
-            # Correct calibration factors here to obtain it in trcncps ppbv-1
-            df_cc_tmp = df_calibrations.copy()
-            df_cc_tmp.drop(['I_cps_H3O1_21', 'I_cps_H5O2_38','file','ctime'],axis=1,inplace=True)
-            df_cc_tmp.columns = [float(mz) for mz in df_cc_tmp.columns]
-            
-            df_tr_interp = df_transmission.drop(['file','ctime'],axis=1)
-            df_tr_interp.columns = [float(mz) for mz in df_tr_interp.columns]
-            for col in df_cc_tmp.columns:
-                if not col in df_tr_interp.columns:
-                    df_tr_interp[col] = np.nan
+                df_tr_interp = df_transmission.drop(['file','ctime'],axis=1)
+                df_tr_interp.columns = [float(mz) for mz in df_tr_interp.columns]
+                for col in df_cc_tmp.columns:
+                    if not col in df_tr_interp.columns:
+                        df_tr_interp[col] = np.nan
 
-            df_tr_interp.sort_index(axis=1, inplace=True)
-            df_tr_interp.interpolate(method='values',axis=1,inplace=True)
-            df_tr_interp.columns = [str(mz) for mz in df_tr_interp.columns]
-            subset = df_tr_interp.columns.intersection(df_calibrations.columns)
-            df_calibrations[subset] = df_calibrations[subset]/df_tr_interp[subset]
+                df_tr_interp.sort_index(axis=1, inplace=True)
+                df_tr_interp.interpolate(method='values',axis=1,inplace=True)
+                df_tr_interp.columns = [str(mz) for mz in df_tr_interp.columns]
+                subset = df_tr_interp.columns.intersection(df_calibrations.columns)
+                df_calibrations[subset] = df_calibrations[subset]/df_tr_interp[subset]
             
-            # Correct calibration factors here to obtain it in trcncps ppbv-1
-            df_cc_tmp = df_calibrations.copy()
-            df_cc_tmp.drop(['I_cps_H3O1_21', 'I_cps_H5O2_38','file','ctime'],axis=1,inplace=True)
-            df_cc_tmp.columns = [float(mz) for mz in df_cc_tmp.columns]
-            
-            df_tr_interp = df_transmission.drop(['file','ctime'],axis=1)
-            df_tr_interp.columns = [float(mz) for mz in df_tr_interp.columns]
-            for col in df_cc_tmp.columns:
-                if not col in df_tr_interp.columns:
-                    df_tr_interp[col] = np.nan
-
-            df_tr_interp.sort_index(axis=1, inplace=True)
-            df_tr_interp.interpolate(method='values',axis=1,inplace=True)
-            df_tr_interp.columns = [str(mz) for mz in df_tr_interp.columns]
-            subset = df_tr_interp.columns.intersection(df_calibrations.columns)
-            df_calibrations[subset] = df_calibrations[subset]/df_tr_interp[subset]
-
         else:
             df_calibrations       = None
             df_transmission       = None
@@ -775,7 +763,7 @@ class TOF_campaign(object):
     def process_calibrations(self):
         print('start process calibrations, {}'.format(self.calibrations_analysis))
         
-        df_calibrations, df_calibrations_rprec, df_calibrations_racc, df_transmission, df_stability, df_anc, calibration_ancillary = self.get_archived_calibrations()
+        df_calibrations, df_calibrations_rprec, df_calibrations_racc, df_transmission, df_stability, df_anc, calibration_ancillary = self.get_archived_calibrations(tr_corrected=False, deconstructed=False)
         
         list_hdf5_calib = self.get_list_hdf5_IDA_calibrations()
         for f_hdf5 in list_hdf5_calib:
