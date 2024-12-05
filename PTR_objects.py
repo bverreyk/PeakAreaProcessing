@@ -31,7 +31,7 @@ except:
     import IDA_reader as IDA_reader
     import mask_routines as msk_r
 
-__version__ = 'v1.0.2'
+__version__ = 'v1.1.0'
 
 ######################
 ## Support routines ##

@@ -166,7 +166,7 @@ class IDA_data(object):
             
         return mz_exact
     
-    def get_renaming(self, df_clusters, double_peaks='sum'):
+    def get_renaming(self, df_clusters):
         mz_exact = self.get_mz_exact(source='self')
         
         renaming = {}
@@ -182,11 +182,28 @@ class IDA_data(object):
     
     def rebase_to_mz_clusters(self,df_clusters,double_peaks='sum'):
         ## Handle double peaks in clusters
-        if not double_peaks in ('drop', 'sum'):
-            print('WARNING: method to handle double peaks not recognised. Default to drop.')
+        if not double_peaks in ('drop', 'sum', 'nearest'):
+            print('WARNING: method to handle double peaks not recognised.')
             double_peaks = 'drop'
 
-        renaming = self.get_renaming(df_clusters,double_peaks)
+        renaming = self.get_renaming(df_clusters)
+        if double_peaks == 'nearest':
+            flipped = {} 
+            for key, value in renaming.items():
+                if value not in flipped:
+                    flipped[value] = [key]
+                else:
+                    flipped[value].append(key)
+
+            for key, values in flipped.items():
+                if len(values)>1:
+                    array = np.asarray(values)
+                    idx = (np.abs(array - key)).argmin()
+                    closest = array[idx]
+
+                    for val in values:
+                        if val != closest:
+                            del renaming[val]
         
         self.data.drop(columns=[col for col in self.data if col not in renaming.keys()],inplace=True)
         self.data.rename(columns=renaming,inplace=True)
@@ -198,9 +215,6 @@ class IDA_data(object):
             # groupby axis = 1 will be depreciated, group the transposed and transpose after
             #self.data = self.data.groupby(by=self.data.columns,axis=1).sum()            
             self.data = self.data.T.groupby(by=self.data.columns).sum().T
-            
-        else:
-            print('Error: method not recognised')
             
         return None
     
