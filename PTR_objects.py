@@ -31,7 +31,7 @@ except:
     import IDA_reader as IDA_reader
     import mask_routines as msk_r
 
-__version__ = 'v1.1.1'
+__version__ = 'v1.1.2'
 
 ######################
 ## Support routines ##
@@ -935,7 +935,7 @@ class TOF_campaign(object):
 
         return df_tr_clusters
     
-    def get_calibrationCoefficients(self, dt_axis, df_calibrations, df_calibrations_rprec, df_calibrations_racc, df_clusters, t_interp = 'constant', t_pairing='both'):
+    def get_calibrationCoefficients(self, dt_axis, df_calibrations, df_calibrations_rprec, df_calibrations_racc, df_clusters, t_interp = 'nearest', t_pairing='both'):
         '''
         Get information extracted from calibrations. 
         '''
@@ -952,32 +952,33 @@ class TOF_campaign(object):
         df_tmp_racc.set_index('ctime',inplace=True)
         df_tmp_racc.columns = [float(col) for col in df_tmp_racc.columns]
 
-        if not t_interp == 'constant':
-            if not t_pairing in ('both','before','after'):
-                raise ValueError
-            if t_pairing == 'before':
-                df_tmp       = df_tmp[df_tmp.index <= dt_axis.max()]
-                df_tmp_rprec = df_tmp_rprec[df_tmp_rprec.index <= dt_axis.max()]
-                df_tmp_racc  = df_tmp_racc[df_tmp_racc.index <= dt_axis.max()]
-                
-            elif t_pairing == 'after':
-                df_tmp       = df_tmp[df_tmp.index >= dt_axis.min()]
-                df_tmp_rprec = df_tmp_rprec[df_tmp_rprec.index >= dt_axis.min()]
-                df_tmp_racc  = df_tmp_racc[df_tmp_racc.index >= dt_axis.min()]
+        if not t_pairing in ('both','before','after'):
+            raise ValueError
+            
+        if t_pairing == 'before':
+            df_tmp       = df_tmp[df_tmp.index <= dt_axis.max()]
+            df_tmp_rprec = df_tmp_rprec[df_tmp_rprec.index <= dt_axis.max()]
+            df_tmp_racc  = df_tmp_racc[df_tmp_racc.index <= dt_axis.max()]
+            
+        elif t_pairing == 'after':
+            df_tmp       = df_tmp[df_tmp.index >= dt_axis.min()]
+            df_tmp_rprec = df_tmp_rprec[df_tmp_rprec.index >= dt_axis.min()]
+            df_tmp_racc  = df_tmp_racc[df_tmp_racc.index >= dt_axis.min()]
         
-        if t_interp == 'constant':
+        if t_interp == 'nearest':
             dict_cc_clusters       = {}
             dict_cc_clusters_rprec = {}
             dict_cc_clusters_racc  = {}
+            
+            idx = abs(df_tmp.index-dt_axis.mean()).argmin()
             for mz in df_tmp.columns:
                 mz_col = mz_r.select_mz_cluster_from_exact(mz, df_clusters, tol = 0.01, mute = True)
                 if np.isnan(mz_col):
                     continue
-                
-                dict_cc_clusters[mz_col]       = df_tmp[mz].mean()
-                dict_cc_clusters_rprec[mz_col] = df_tmp_rprec[mz].mean()
-                dict_cc_clusters_racc[mz_col]  = df_tmp_racc[mz].mean()
-                
+                dict_cc_clusters[mz_col] = df_tmp.iloc[idx][mz]
+                dict_cc_clusters_rprec[mz_col] = df_tmp_rprec.iloc[idx][mz]
+                dict_cc_clusters_racc[mz_col] = df_tmp_racc.iloc[idx][mz]
+            
             df_cc_clusters       = pd.DataFrame([dict_cc_clusters])
             df_cc_clusters_rprec = pd.DataFrame([dict_cc_clusters_rprec])
             df_cc_clusters_racc  = pd.DataFrame([dict_cc_clusters_racc])
@@ -1460,8 +1461,7 @@ class PTR_data(object):
         self.df_prec = self.get_precision_poisson()
         
         return None
-    
-   
+       
     def get_precision_poisson(self):
         df_prec = self.df_absolute_counts.pow(0.5)
         df_rprec = df_prec/abs(self.df_absolute_counts)
@@ -1648,7 +1648,6 @@ class PTR_data(object):
 
         return df_ncr, df_ncr_prec
     
-    
     def transform_data_ncr(self, dict_Xr0={}, Xr0_default=1.):
         self.df_data, self.df_prec = self.get_data_ncr(dict_Xr0, Xr0_default)
         self.data_description = 'Normalised Ion count'
@@ -1659,7 +1658,6 @@ class PTR_data(object):
 
         return None
 
-    
     def get_data_trcnrc(self, transmissions):
         if not self.data_units == 'ncps':
             print('Error, normalise signal before correcting for transmission effects')
@@ -1988,7 +1986,6 @@ class PTR_data(object):
             
         return Xr0
 
-
     def process_calibration(self, calibration_ancillary, dir_o_cal,
                              tdelta_buf_zero=dt.timedelta(minutes=1),tdelta_avg_zero=dt.timedelta(minutes=5),tdelta_min_zero=dt.timedelta(minutes=20),
                              tdelta_buf_calib=dt.timedelta(minutes=1),tdelta_avg_calib=dt.timedelta(minutes=5),
@@ -2056,7 +2053,6 @@ class PTR_data(object):
             else:
                 mz_anc['Xr0'] = Xr0_default
 
-            
             anc.append(mz_anc)
         
         t_reac, t_reac_unc, N_DT, N_DT_unc = calib_r.get_ancilarry_PTRT_drift_calib_av_unc(self.df_P_drift.mean(),self.df_P_drift.std(),
@@ -2080,8 +2076,8 @@ class PTR_data(object):
         
         # Get transmissions and calibration coefficients
         ################################################
+        # Zero is not expected to be subtracted for the calibr_r routines!
         self.transform_data_ncr(dict_Xr0=dict_Xr0,Xr0_default=Xr0_default)
-        self.transform_data_subtract_zero(tdelta_buf_zero = tdelta_buf_zero, tdelta_avg_zero=tdelta_avg_zero, tdelta_min_zero=tdelta_min_zero, zero=zero)
         
         # Check stability of signal during calibrations
         tmp = self.df_data[mask_check_stability].std()/self.df_data[mask_check_stability].mean()
@@ -2114,7 +2110,8 @@ class PTR_data(object):
         # Add transmission at 21 (used for normalisation, important to interpolate the Tr_coeff in processing)
         tr_coeff[21.022] = 1.
         
-        # Get calibration coefficients
+        # Get calibration coefficients --  Here we have to subtract zero before we can calculate the CCs
+        self.transform_data_subtract_zero(tdelta_buf_zero = tdelta_buf_zero, tdelta_avg_zero=tdelta_avg_zero, tdelta_min_zero=tdelta_min_zero, zero=zero)
         for mz in mz_exact:
             if not mz in mixrat_bottle[mixrat_bottle.notna()].keys():
                 continue
@@ -2297,7 +2294,6 @@ class PTR_data(object):
     
         return None
    
-    
     def save_output(self, dir_o, campaign, instrument, df_tr_coeff, df_cc_coeff, masks = [], threshold = 1, file_format = 'conf0', time_info=None, processing_config={}):
         # Save the processed data
         #########################

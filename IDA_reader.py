@@ -187,6 +187,7 @@ class IDA_data(object):
             double_peaks = 'drop'
 
         renaming = self.get_renaming(df_clusters)
+        
         if double_peaks == 'nearest':
             flipped = {} 
             for key, value in renaming.items():
@@ -194,7 +195,7 @@ class IDA_data(object):
                     flipped[value] = [key]
                 else:
                     flipped[value].append(key)
-
+                    
             for key, values in flipped.items():
                 if len(values)>1:
                     array = np.asarray(values)
@@ -203,9 +204,8 @@ class IDA_data(object):
 
                     for val in values:
                         if val != closest:
-                            print('dropping double value further from reference mass')
                             del renaming[val]
-        
+                            
         self.data.drop(columns=[col for col in self.data if col not in renaming.keys()],inplace=True)
         self.data.rename(columns=renaming,inplace=True)
         
