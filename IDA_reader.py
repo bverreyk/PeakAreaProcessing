@@ -58,14 +58,17 @@ class IDA_data(object):
             
             if id_method == 'exact':
                 match = self.dict_reaction[to_get]['column']
+                
             elif id_method == 'StartsWith':
+                match = None
                 reaction_keys = self.ptr_reaction.keys()
                 for key in reaction_keys:
                     if not key.startswith(self.dict_reaction[to_get]['column']):
                         continue
                     match = key
                     break
-                    
+            if match is None:
+                print('Error, could not find {} (representative of {}) in IDA output (method = {})'.format(self.dict_reaction[to_get]['column'],to_get,id_method))
             if to_get == 'P_drift':
                 correction = 1.
                 if not self.dict_reaction[to_get]['units'] == 'mbar':

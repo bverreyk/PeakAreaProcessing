@@ -31,7 +31,7 @@ except:
     import IDA_reader as IDA_reader
     import mask_routines as msk_r
 
-__version__ = 'v1.1.2'
+__version__ = 'v1.1.3'
 
 ######################
 ## Support routines ##
@@ -1699,6 +1699,7 @@ class PTR_data(object):
 
         df_ppbv = self.df_data.copy()
         df_ppbv_prec = self.df_prec.copy()
+        
         # Set relative accuracy to 0.5 for all compounds, correct for calirbated later on
         df_ppbv_racc = pd.DataFrame(data=0.5, index=df_ppbv.index, columns=df_ppbv.columns)
         
