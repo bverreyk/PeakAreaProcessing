@@ -31,7 +31,7 @@ except:
     import IDA_reader as IDA_reader
     import mask_routines as msk_r
 
-__version__ = 'v1.1.3'
+__version__ = 'v1.1.4'
 
 ######################
 ## Support routines ##
@@ -1488,7 +1488,7 @@ class PTR_data(object):
         
         return df_data_totalcounts
 
-    def get_zero(self, tdelta_buf_zero = dt.timedelta(minutes=1), tdelta_avg_zero=dt.timedelta(minutes=5), tdelta_min_zero=dt.timedelta(minutes=20), zero='interp', mute = False):
+    def get_zero(self, tdelta_buf_zero = dt.timedelta(minutes=1), tdelta_avg_zero=dt.timedelta(minutes=5), tdelta_min_zero=dt.timedelta(minutes=20), zero='interp', zero_unc='Precision', mute = False):
         if not 'zero_trimmed' in self.masks.keys():
             print('Warning, untrimmed zero mask used to infer zero measurements.')
             mask_calc_zero = msk_r.get_representative_mask_from_multiple_intervals(self.df_data, self.masks['zero'], tdelta_buf_zero, tdelta_avg_zero, tdelta_min_zero, mute=mute)
@@ -1518,13 +1518,22 @@ class PTR_data(object):
         else:
             df_I_zero = df_I_tmp.copy()
             df_I_zero[~mask_calc_zero] = np.nan
-            
             df_I_zero_prec = df_I_tmp_prec.copy()
             df_I_zero_prec[~mask_calc_zero] = np.nan
-            for i in np.arange(len(i_start)):
-                df_I_zero.iloc[i_start[i]-1:i_stop[i]+1] = df_I_zero.iloc[i_start[i]-1:i_stop[i]+1].mean()
-                df_I_zero_prec.iloc[i_start[i]-1:i_stop[i]+1] = df_I_zero_prec.iloc[i_start[i]-1:i_stop[i]+1].mean()
             
+            for i in np.arange(len(i_start)):
+                if zero_unc == 'Precision':
+                    df_I_zero_prec.iloc[i_start[i]-1:i_stop[i]+1] = df_I_zero_prec.iloc[i_start[i]-1:i_stop[i]+1].mean()
+                
+                elif zero_unc == 'Distribution':
+                    df_I_zero_prec.iloc[i_start[i]-1:i_stop[i]+1] = df_I_zero.iloc[i_start[i]-1:i_stop[i]+1].std()
+                
+                else:
+                    print('Error: uncertainty method for zero ({}) not recognized.'.format(zero_unc))
+                    raise ValueError
+            
+                df_I_zero.iloc[i_start[i]-1:i_stop[i]+1] = df_I_zero.iloc[i_start[i]-1:i_stop[i]+1].mean()
+                
             if zero == 'interp':
                 df_I_zero.interpolate(method='values',inplace=True)
                 df_I_zero.ffill(inplace=True)
@@ -1557,25 +1566,25 @@ class PTR_data(object):
         
         return df_I_zero, df_I_zero_prec
 
-    def set_zero(self, tdelta_buf_zero = dt.timedelta(minutes=1), tdelta_avg_zero=dt.timedelta(minutes=5), tdelta_min_zero=dt.timedelta(minutes=20), zero='interp', mute = False):
-        self.df_zero, self.df_zero_prec = self.get_zero(tdelta_buf_zero = tdelta_buf_zero, tdelta_avg_zero = tdelta_avg_zero, tdelta_min_zero=tdelta_min_zero, zero = zero, mute = mute)
+    def set_zero(self, tdelta_buf_zero = dt.timedelta(minutes=1), tdelta_avg_zero=dt.timedelta(minutes=5), tdelta_min_zero=dt.timedelta(minutes=20), zero='interp', zero_unc='Distribution', mute = False):
+        self.df_zero, self.df_zero_prec = self.get_zero(tdelta_buf_zero = tdelta_buf_zero, tdelta_avg_zero = tdelta_avg_zero, tdelta_min_zero=tdelta_min_zero, zero = zero, zero_unc=zero_unc, mute = mute)
         self.zero_description = '{}, zero values'.format(self.data_description)
         self.zero_prec_description = 'Precision on zero values'
         self.zero_units = self.data_units
         
         return None
 
-    def get_data_zero_corrected(self, tdelta_buf_zero = dt.timedelta(minutes=1), tdelta_avg_zero=dt.timedelta(minutes=5), tdelta_min_zero=dt.timedelta(minutes=20), zero='interp', mute = False):
+    def get_data_zero_corrected(self, tdelta_buf_zero = dt.timedelta(minutes=1), tdelta_avg_zero=dt.timedelta(minutes=5), tdelta_min_zero=dt.timedelta(minutes=20), zero='interp', zero_unc='Distribution', mute = False):
         if self.zero_units != self.data_units:
-            self.set_zero(tdelta_buf_zero = tdelta_buf_zero, tdelta_avg_zero = tdelta_avg_zero, tdelta_min_zero = tdelta_min_zero, zero = zero, mute = mute)
+            self.set_zero(tdelta_buf_zero = tdelta_buf_zero, tdelta_avg_zero = tdelta_avg_zero, tdelta_min_zero = tdelta_min_zero, zero = zero, zero_unc = zero_unc, mute = mute)
         
         df_I_zc = self.df_data - self.df_zero
         df_I_zc_prec = (self.df_prec.pow(2)+self.df_zero_prec.pow(2)).pow(0.5)
         
         return df_I_zc, df_I_zc_prec
         
-    def transform_data_subtract_zero(self, tdelta_buf_zero = dt.timedelta(minutes=1), tdelta_avg_zero=dt.timedelta(minutes=5), tdelta_min_zero=dt.timedelta(minutes=20), zero='constant', mute = False):
-        self.df_data, self.df_prec = self.get_data_zero_corrected(tdelta_buf_zero=tdelta_buf_zero, tdelta_avg_zero=tdelta_avg_zero, tdelta_min_zero=tdelta_min_zero, zero = zero, mute = mute)
+    def transform_data_subtract_zero(self, tdelta_buf_zero = dt.timedelta(minutes=1), tdelta_avg_zero=dt.timedelta(minutes=5), tdelta_min_zero=dt.timedelta(minutes=20), zero='constant', zero_unc='Distribution', mute = False):
+        self.df_data, self.df_prec = self.get_data_zero_corrected(tdelta_buf_zero=tdelta_buf_zero, tdelta_avg_zero=tdelta_avg_zero, tdelta_min_zero=tdelta_min_zero, zero = zero, zero_unc = zero_unc, mute = mute)
         
         return None
 
@@ -1743,20 +1752,20 @@ class PTR_data(object):
                                      cc_corrections, default_multiplier=1.)
         df_ppbv_prec = get_data_corrected(df_ppbv_prec, self.df_clusters,
                                      cc_corrections, default_multiplier=1.)
-        
+                
         # Set racc for calibrated compounds
         subset = df_ppbv_racc.columns.intersection(df_cc_coeff_racc.columns)
         df_ppbv_racc[subset] = 1.
         df_ppbv_racc[subset] = df_ppbv_racc[subset].mul(df_cc_coeff_racc[subset].iloc[0])
 
         # Correct prec for calibrated compounds
-        df_tmp_prec = pd.DataFrame(0,index=df_ppbv_prec.index, columns=df_ppbv_prec.columns)
-        subset = df_tmp_prec.columns.intersection(df_cc_coeff_rprec.columns)
-        df_tmp_prec[subset] = 1.
-        df_tmp_prec[subset] = df_tmp_prec[subset].mul((df_cc_coeff_rprec*df_cc_coeff)[subset].iloc[0])
+        df_tmp_rprec = pd.DataFrame(0,index=df_ppbv_prec.index, columns=df_ppbv_prec.columns)
+        subset = df_tmp_rprec.columns.intersection(df_cc_coeff_rprec.columns)
+        df_tmp_rprec[subset] = 1.
+        df_tmp_rprec[subset] = df_tmp_rprec[subset].mul(df_cc_coeff_rprec[subset].iloc[0])
         
-        df_ppbv_prec[subset] = (df_ppbv_prec[subset].pow(2)+df_tmp_prec[subset].pow(2)).pow(0.5)
-        del [df_tmp_prec]
+        df_ppbv_prec[subset] = df_ppbv[subset].mul(((df_ppbv_prec[subset]/df_ppbv[subset]).pow(2)+df_tmp_rprec[subset].pow(2)).pow(0.5))
+        del [df_tmp_rprec]
         
         # The transformation of primary ions is not relevant so revert here
         for mz_col in [self.mz_col_21, self.mz_col_38]:
@@ -2236,6 +2245,9 @@ class PTR_data(object):
         df_prec = self.df_prec[mz_sel]*1.e3
         df_DL = 3.*self.df_zero_prec[mz_sel]*1.e3
         df_expUnc = 2.*(self.df_prec[mz_sel].pow(2)+(self.df_data[mz_sel]*self.df_racc[mz_sel]).pow(2)).pow(0.5)*1.e3
+
+        # df_zero = self.df_zero[mz_sel]*1.e3
+        # df_zero_prec = self.df_zero_prec[mz_sel]*1.e3
         
         mask = np.zeros(len(self.masks['invalid']))
         setup_flags = np.array(self.masks['invalid']*0.999)
@@ -2270,7 +2282,12 @@ class PTR_data(object):
         df_prec.columns = ['{:.4f}_prec'.format(col) for col in df_prec.columns]
         df_flag.columns = ['{:.4f}_flag'.format(col) for col in df_flag.columns]
         
+        # df_zero.columns = ['{:.4f}_zero'.format(col) for col in df_zero.columns]
+        # df_zero_prec.columns = ['{:.4f}_zeroPrec'.format(col) for col in df_zero_prec.columns]
+    
         df_concat = pd.concat([df_data, df_expUnc, df_prec, df_flag],axis=1)
+        
+        # df_concat = pd.concat([df_concat, df_zero, df_zero_prec],axis=1)
     
         df_concat['t_start'] = df_concat.index
         df_concat['t_stop']  = df_concat.t_start+pd.to_timedelta(self.sst*1.e-3,unit='s')
@@ -2287,6 +2304,9 @@ class PTR_data(object):
             column_order.append('{:.4f}_expUnc'.format(mz))
             column_order.append('{:.4f}_prec'.format(mz))
             column_order.append('{:.4f}_flag'.format(mz))
+            
+            column_order.append('{:.4f}_zero'.format(mz))
+            column_order.append('{:.4f}_zeroPrec'.format(mz))
         
         fname = 'EBAS_{}'.format(df_concat.index.min().strftime('%Y%m%d-%H%M%S'))
         
