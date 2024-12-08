@@ -31,7 +31,7 @@ except:
     import IDA_reader as IDA_reader
     import mask_routines as msk_r
 
-__version__ = 'v1.1.4'
+__version__ = 'v1.1.5'
 
 ######################
 ## Support routines ##
@@ -2305,8 +2305,8 @@ class PTR_data(object):
             column_order.append('{:.4f}_prec'.format(mz))
             column_order.append('{:.4f}_flag'.format(mz))
             
-            column_order.append('{:.4f}_zero'.format(mz))
-            column_order.append('{:.4f}_zeroPrec'.format(mz))
+            # column_order.append('{:.4f}_zero'.format(mz))
+            # column_order.append('{:.4f}_zeroPrec'.format(mz))
         
         fname = 'EBAS_{}'.format(df_concat.index.min().strftime('%Y%m%d-%H%M%S'))
         
