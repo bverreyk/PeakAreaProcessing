@@ -31,7 +31,7 @@ except:
     import IDA_reader as IDA_reader
     import mask_routines as msk_r
 
-__version__ = 'v1.1.6'
+__version__ = 'v1.1.7'
 
 ######################
 ## Support routines ##
@@ -2250,12 +2250,19 @@ class PTR_data(object):
         if len(masses)==0:
             mz_sel = self.df_data.columns.values
         else:
-            mz_sel = mz_r.select_mz_clusters_from_exact(masses, self.df_clusters)
+            tmp = mz_r.select_mz_clusters_from_exact(masses, self.df_clusters)
+            mz_sel = self.df_data.columns.intersection(tmp)
+            mz_mis = mz_sel.difference(tmp)
     
         df_data = self.df_data[mz_sel]*1.e3
         df_prec = self.df_prec[mz_sel]*1.e3
         df_DL = 3.*self.df_zero_prec[mz_sel]*1.e3
         df_expUnc = 2.*(self.df_prec[mz_sel].pow(2)+(self.df_data[mz_sel]*self.df_racc[mz_sel]).pow(2)).pow(0.5)*1.e3
+
+        df_data[mz_mis] = np.nan
+        df_prec[mz_mis] = np.nan
+        df_DL[mz_mis] = np.nan
+        df_expUnc[mz_mis] = np.nan
 
         # df_zero = self.df_zero[mz_sel]*1.e3
         # df_zero_prec = self.df_zero_prec[mz_sel]*1.e3
@@ -2287,6 +2294,8 @@ class PTR_data(object):
         df_flag[((df_data<df_DL) & 
                  (df_flag != 0.684) &
                  (df_flag != 0.999))] = 0.147
+        
+        df_flag[mz_mis] = 0.147
     
         df_data.columns = ['{:.4f}'.format(col) for col in df_data.columns]
         df_expUnc.columns = ['{:.4f}_expUnc'.format(col) for col in df_expUnc.columns]
