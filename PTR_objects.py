@@ -31,7 +31,7 @@ except:
     import IDA_reader as IDA_reader
     import mask_routines as msk_r
 
-__version__ = 'v1.1.5'
+__version__ = 'v1.1.6'
 
 ######################
 ## Support routines ##
@@ -835,6 +835,7 @@ class TOF_campaign(object):
             self.archive_calibrations(df_calibrations, df_transmission, df_stability, df_anc)
             
             print('--done--')
+            del PTR_data_object
 
         return None
 
@@ -1441,6 +1442,8 @@ class PTR_data(object):
                 continue
             if 'invalid'in key:
                 continue
+            if 'trimmed' in key:
+                continue
             tmp['{}_trimmed'.format(key)] = msk_r.get_trimmed_mask(self.masks[key],self.df_data.index,tdelta_after_start=tdelta_trim_start,tdelta_before_stop=tdelta_trim_stop)
     
         self.masks.update(tmp)
@@ -1500,7 +1503,7 @@ class PTR_data(object):
         
         if ((mask_calc_zero is None) or
             (mask_calc_zero.sum() == 0)):
-            print('Error: No zero measurement available from {} to {}'.format(self.df_data.index.min().strftime(format='%Y-%m-%d %H:%M %Z'),self.df_data.index.max().strftime(format='%Y-%m-%d %H:%M %Z')))
+            print('Error: No representative zero measurement available from {} to {}'.format(self.df_data.index.min().strftime(format='%Y-%m-%d %H:%M %Z'),self.df_data.index.max().strftime(format='%Y-%m-%d %H:%M %Z')))
             raise ValueError
         
         # zero correction for the primary ions is not applicable
@@ -1812,6 +1815,10 @@ class PTR_data(object):
             print('Overwriting the zero and calibration mask values from inferred.')
             self.masks['zero'] = mask_zero
             self.masks['calib'] = mask_calib
+            
+            # if inferred, trim 10 seconds before and after identified switch
+            self.trim_masks(dt.timedelta(seconds=10), dt.timedelta(seconds=10))
+
 
         # Zero interval averaging mask
         mask_calc_zero = msk_r.get_representative_mask_from_multiple_intervals(self.df_data, self.masks['zero'], tdelta_buf_zero,  tdelta_avg_zero, tdelta_min_zero)
@@ -1861,6 +1868,10 @@ class PTR_data(object):
                                                                   match_switches=match_switches,
                                                                   version=2)
         self.masks['zero'] = mask_zero
+        self.masks['calib'] = mask_calib
+
+        # Trim the masks with a standard wider buffer as the infering may produce some errors
+        self.trim_masks(dt.timedelta(seconds=10), dt.timedelta(seconds=10))
         
         # Get averaging masks
         mask_calc_zero = msk_r.get_representative_mask_from_multiple_intervals(self.df_data,mask_zero,tdelta_buf_zero,tdelta_avg_zero, tdelta_min_zero)
