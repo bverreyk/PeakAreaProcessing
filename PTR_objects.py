@@ -552,13 +552,16 @@ class TOF_campaign(object):
     def add_anc_df_clusters(self, df_clusters):
         df_clusters['k [1.e-9 cm3 molecule-1 s-1]'] = self.processing_config['k_reac_default']
         df_clusters['Xr0'] = self.processing_config['Xr0_default']
-        df_clusters['multiplier'] = 1.
+        df_clusters['FY'] = 1. # Fragmentation yield
+        df_clusters['IF'] = 1. # Isotopic multiplication factor
+        
         return df_clusters
         
     
     def get_df_clusters(self):
         if self.mz_selection['archived']:
             df_clusters = pd.read_csv('{}clusters.csv'.format(self.dir_o_log),index_col=0)
+            
         
         else:
             if self.mz_selection['method'] == 'cluster':
@@ -851,8 +854,9 @@ class TOF_campaign(object):
         return dict_k_react_mz
     
     def get_multiplier_mz(self, df_clusters):
-        mask = (df_clusters.multiplier != 1.)
-        dict_multiplier = df_clusters[mask].multiplier.to_dict()
+        multiplier = df_clusters.IF/df_clusters.FY
+        mask = (multiplier != 1.)
+        dict_multiplier = multiplier[mask].to_dict()
         return dict_multiplier
     
     def get_transmissionCoefficients(self, mz_function, dt_axis, df_transmission, df_clusters, mz_func = 'interp', t_interp = 'nearest', t_pairing='both'):
@@ -2396,7 +2400,7 @@ class PTR_data(object):
                     units="atomic mass unit",
                 ),
             )
-        
+            
             limits_max = xr.DataArray(
                 data=self.df_clusters[tmp_mask].cluster_max.values,
                 dims=["mz"],
@@ -2421,11 +2425,15 @@ class PTR_data(object):
                 ),
             )
             
+            # Set the first principles VMR CC parameters to NaN for directly calibrated compounds
+            tmp = self.df_clusters[tmp_mask][['k [1.e-9 cm3 molecule-1 s-1]','FY', 'IF']]
+            cal_sel = tmp.index.intersection(df_cc_coeff.columns)
+            tmp[cal_sel] = np.nan
             k_reac = xr.DataArray(
-                data=self.df_clusters[tmp_mask]['k [1.e-9 cm3 molecule-1 s-1]'].values,
+                data=tmp['k [1.e-9 cm3 molecule-1 s-1]'].values,
                 dims=["mz"],
                 coords=dict(
-                    mz=self.df_clusters[tmp_mask].index.values,
+                    mz=tmp.index.values,
                 ),
                 attrs=dict(
                     description="Ion/Molecule reaction rate constant",
@@ -2433,14 +2441,26 @@ class PTR_data(object):
                 ),
             )
             
-            multiplier = xr.DataArray(
-                data=self.df_clusters[tmp_mask].multiplier.values,
+            FY = xr.DataArray(
+                data=tmp.FY.values,
                 dims=["mz"],
                 coords=dict(
-                    mz=self.df_clusters[tmp_mask].index.values,
+                    mz=tmp.index.values,
                 ),
                 attrs=dict(
-                    description="Multiplier to correct for fragmentation & isotopic ratio",
+                    description="Fragmentation yield to correct signal due to fragmentation in the drift tube",
+                    units="",
+                ),
+            )
+            
+            IF = xr.DataArray(
+                data=tmp.IF.values,
+                dims=["mz"],
+                coords=dict(
+                    mz=tmp.index.values,
+                ),
+                attrs=dict(
+                    description="Isotopic factor to correct isotopic ratio",
                     units="",
                 ),
             )
@@ -2484,9 +2504,10 @@ class PTR_data(object):
 
             data_vars = {'Signal':da_data,'Signal_precision':da_prec,
                          'cluster_min':limits_min,'cluster_max':limits_max,
-                         'Xr0':Xr0,'k_reac':k_reac,'multiplier':multiplier,
+                         'Xr0':Xr0,'k_reac':k_reac,'FY':FY,'IF':IF,
                          'transmission':transmission,'calibration':calibration,
                          'MeasurementsTimeInterval':da_sst}
+            
             if not (self.df_zero is None):
                 da_zero = xr.DataArray(
                     data=self.df_zero[self.masks[key]].values,
