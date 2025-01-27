@@ -31,7 +31,7 @@ except:
     import IDA_reader as IDA_reader
     import mask_routines as msk_r
 
-__version__ = 'v1.1.7'
+__version__ = 'v1.1.8'
 
 ######################
 ## Support routines ##
@@ -97,7 +97,7 @@ class TOF_campaign(object):
     def __init__(self, name, dir_base, data_input_level, data_output_level, 
                  data_config, processing_config,
                  year = None, instrument='TOF4000',
-                 calibrations_analysis='integrated',
+                 calibrations_analysis='integrated',hdf5_files=False,
                  mz_selection={'method':None},time_info={'IDA_output':'UTC','PAP_output':'UTC+1','anc_in':'UTC+1'}):
         '''
         name - string
@@ -306,16 +306,23 @@ class TOF_campaign(object):
         self.data_input_level = data_input_level
         if self.data_input_level == 'Archived':
             full_archive = True
-            
-        self.df_file_list_info = self.get_files_dataframe(full_archive)
-             
+        
+        try:
+            self.df_file_list_info = self.get_files_dataframe(full_archive,hdf5_files=hdf5_files)
+        except:
+            print('Error in retrieving available data.')
+            print('Creating hdf5_files.csv in output log')
+            list_IDA = self.get_list_hdf5_IDA()
+            df = pd.DataFrame(data=list_IDA,columns=['file'])
+            df.to_csv('{}hdf5_files.csv'.format(self.dir_o_log))
+           
         ## create clusters dataframe
         self.df_clusters = self.get_df_clusters()
 
     def __str__(self):
         return self.name
     
-    def get_files_dataframe(self, full_archive = False):
+    def get_files_dataframe(self, full_archive = False, hdf5_files=False):
         '''
         Datafiles and start/end times excluding dedicated calibrations.
         '''
@@ -329,7 +336,10 @@ class TOF_campaign(object):
             
         if not full_archive:
             print('Gather data on all files')
-            list_hdf5 = self.get_list_hdf5_IDA()
+            if hdf5_files:
+                list_hdf5 = pd.read_csv('{}hdf5_files.csv'.format(self.dir_o_log)).file
+            else:
+                list_hdf5 = self.get_list_hdf5_IDA()
             files = []
             t_min = []
             t_max = []
