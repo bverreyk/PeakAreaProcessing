@@ -31,7 +31,7 @@ except:
     import IDA_reader as IDA_reader
     import mask_routines as msk_r
 
-__version__ = 'v1.1.7'
+__version__ = 'v1.2.1'
 
 ######################
 ## Support routines ##
@@ -96,9 +96,10 @@ def get_timezone(offset):
 class TOF_campaign(object):
     def __init__(self, name, dir_base, data_input_level, data_output_level, 
                  data_config, processing_config,
-                 year = None, instrument='TOF4000',
-                 calibrations_analysis='integrated',
-                 mz_selection={'method':None},time_info={'IDA_output':'UTC','PAP_output':'UTC+1','anc_in':'UTC+1'}):
+                 year = None, instrument = 'TOF4000',
+                 calibrations_analysis = 'integrated', calib_bottle_change = False, 
+                 hdf5_files = False,
+                 mz_selection = {'method':None}, time_info = {'IDA_output':'UTC','PAP_output':'UTC+1','anc_in':'UTC+1'}):
         '''
         name - string
           Contains the name of the analysis/campaign, the first subdirectory for 
@@ -234,6 +235,7 @@ class TOF_campaign(object):
         if not calibrations_analysis in ('integrated', 'dedicated'):
             raise ValueError
         self.calibrations_analysis = calibrations_analysis
+        self.calib_bottle_change = calib_bottle_change
 
         ## Processing configuration        
         keywords = ['acc_interval',
@@ -306,16 +308,23 @@ class TOF_campaign(object):
         self.data_input_level = data_input_level
         if self.data_input_level == 'Archived':
             full_archive = True
-            
-        self.df_file_list_info = self.get_files_dataframe(full_archive)
-             
+        
+        try:
+            self.df_file_list_info = self.get_files_dataframe(full_archive,hdf5_files=hdf5_files)
+        except:
+            print('Error in retrieving available data.')
+            print('Creating hdf5_files.csv in output log')
+            list_IDA = self.get_list_hdf5_IDA()
+            df = pd.DataFrame(data=list_IDA,columns=['file'])
+            df.to_csv('{}hdf5_files.csv'.format(self.dir_o_log))
+           
         ## create clusters dataframe
         self.df_clusters = self.get_df_clusters()
 
     def __str__(self):
         return self.name
     
-    def get_files_dataframe(self, full_archive = False):
+    def get_files_dataframe(self, full_archive = False, hdf5_files=False):
         '''
         Datafiles and start/end times excluding dedicated calibrations.
         '''
@@ -329,7 +338,10 @@ class TOF_campaign(object):
             
         if not full_archive:
             print('Gather data on all files')
-            list_hdf5 = self.get_list_hdf5_IDA()
+            if hdf5_files:
+                list_hdf5 = pd.read_csv('{}hdf5_files.csv'.format(self.dir_o_log)).file
+            else:
+                list_hdf5 = self.get_list_hdf5_IDA()
             files = []
             t_min = []
             t_max = []
@@ -446,7 +458,7 @@ class TOF_campaign(object):
         x = np.array(x)
         y = np.array(y)
         return x, y, n
-        
+    
     def get_clustering_DBSCAN(self, eps, min_samples, x = None, y = None):
         if ((x is None) or (y is None)):
             x, y, n = self.get_clustering_info()
@@ -556,7 +568,6 @@ class TOF_campaign(object):
         df_clusters['IF'] = 1. # Isotopic multiplication factor
         
         return df_clusters
-        
     
     def get_df_clusters(self):
         if self.mz_selection['archived']:
@@ -682,13 +693,42 @@ class TOF_campaign(object):
         check_create_output_dir(dir_o_cal)
         return dir_o_cal
     
-    def get_archived_calibrations(self, tr_corrected=True, deconstructed=True):
+    def get_calibration_ancillary(self, date):
         year = self.year[0]
-        print('Warning: calibration mixtures is expected not to change from the first year')
+        print('Calibration ancilary input is expected to be located in the first year of measurements.')
         base_path = '{1}{0}{2}{0}{3}{0}Misc{0}Calibrations{0}input{0}'.format(os.sep,self.dir_base,year,self.instrument)
-        calibration_ancillary = pd.read_csv('{}Calibration_Ancillary.csv'.format(base_path))
-        calibration_ancillary.set_index('mz_exact',inplace=True)
+        if not self.calib_bottle_change:
+            calibration_ancillary = pd.read_csv('{}Calibration_Ancillary.csv'.format(base_path))
+            
+        else:
+            calib_dict = {}
+            # YYYYMMDD_HHMM from when the bottle was put in place
+            list_calib_anc = glob.glob('{}Calibration_Ancillary_????????_????.csv'.format(base_path))
 
+            reference = None
+            diff = None
+            for f in list_calib_anc:
+                dt_tmp = dt.datetime.strptime(f[-17:-4],'%Y%m%d_%H%M').replace(tzinfo=self.time_info['tz_in']) # datetime temporary
+                td_tmp = date - dt_tmp # timedelta temporary
+                if td_tmp < dt.timedelta(0):
+                    continue
+                    
+                if reference is None:
+                    reference = f
+                    diff = td_tmp
+                    continue
+                    
+                if diff > td_tmp:
+                    reference = f
+                    diff = td_tmp
+            
+            print('Calibration ancillary file: ', reference)
+            calibration_ancillary = pd.read_csv(reference)
+        
+        calibration_ancillary.set_index('mz_exact',inplace=True)        
+        return calibration_ancillary
+    
+    def get_archived_calibrations(self, tr_corrected=True, deconstructed=True):
         dir_o_cal = self.get_dir_o_calib()
         
         f_calibrations = '{}calibrations.csv'.format(dir_o_cal)
@@ -745,7 +785,7 @@ class TOF_campaign(object):
             df_calibrations_racc  = None
             df_calibrations_rprec = None
         
-        return df_calibrations, df_calibrations_rprec, df_calibrations_racc, df_transmission, df_stability, df_anc, calibration_ancillary
+        return df_calibrations, df_calibrations_rprec, df_calibrations_racc, df_transmission, df_stability, df_anc
     
     def archive_calibrations(self, df_calibrations, df_transmission, df_stability, df_anc):
         dir_o_cal = self.get_dir_o_calib()
@@ -766,7 +806,7 @@ class TOF_campaign(object):
     def process_calibrations(self):
         print('start process calibrations, {}'.format(self.calibrations_analysis))
         
-        df_calibrations, df_calibrations_rprec, df_calibrations_racc, df_transmission, df_stability, df_anc, calibration_ancillary = self.get_archived_calibrations(tr_corrected=False, deconstructed=False)
+        df_calibrations, df_calibrations_rprec, df_calibrations_racc, df_transmission, df_stability, df_anc = self.get_archived_calibrations(tr_corrected=False, deconstructed=False)
         
         list_hdf5_calib = self.get_list_hdf5_IDA_calibrations()
         for f_hdf5 in list_hdf5_calib:
@@ -807,6 +847,8 @@ class TOF_campaign(object):
                      ]
             
             dir_o_cal = self.get_dir_o_calib()
+            calibration_ancillary = self.get_calibration_ancillary(t_start+((t_stop-t_start)/2))
+
             new_trans, new_calib, new_stability, new_anc = PTR_data_object.process_calibration(calibration_ancillary, dir_o_cal, 
                                                                                                **{key: self.processing_config[key] for key in kwords}, 
                                                                                                precision_calc=self.processing_config['precision_calc'],
@@ -994,7 +1036,6 @@ class TOF_campaign(object):
                 
         return df_cc_clusters, df_cc_clusters_rprec, df_cc_clusters_racc
     
-
     def process(self, ongoing = False, t_start = None, t_stop=None, masks = [], output_threshold = 1, file_format = 'conf0', masses=[33.033]):
         '''
         masks: array of strings, contains the masks for which output is asked,
@@ -1008,7 +1049,7 @@ class TOF_campaign(object):
         # Check, process and archive calibrations
         #########################################
         self.process_calibrations()
-        df_calibrations, df_calibrations_rprec, df_calibrations_racc, df_transmission, df_stability, df_anc, calibration_ancillary = self.get_archived_calibrations()
+        df_calibrations, df_calibrations_rprec, df_calibrations_racc, df_transmission, df_stability, df_anc = self.get_archived_calibrations(tr_corrected=True, deconstructed=True)
         
         # Anc: Calibration breaks
         #########################
