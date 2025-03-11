@@ -2411,6 +2411,8 @@ class PTR_data(object):
                 continue
             
             mz = self.df_data.columns.values
+            sel_vmr = self.df_data.columns.difference(self.mz_col_primIon.values())
+            sel_primIon = self.df_data.columns.intersection(self.mz_col_primIon.values())
             
             if time_info is None:
                 time = self.df_data[self.masks[key]].index.values
@@ -2419,10 +2421,10 @@ class PTR_data(object):
                 out_time = pd.to_datetime(time.min()) # Convert from numpy datetine to dt.datetime
 
             da_data = xr.DataArray(
-                data=self.df_data[self.masks[key]].values,
+                data=self.df_data[self.masks[key]][sel_vmr].values,
                 dims=["time","mz"],
                 coords=dict(
-                    mz=self.df_data.columns.values,
+                    mz=self.df_data[sel_vmr].columns.values,
                     time=time,
                 ),
                 attrs=dict(
@@ -2432,10 +2434,10 @@ class PTR_data(object):
             )
             
             da_prec = xr.DataArray(
-                data=self.df_prec[self.masks[key]].values,
+                data=self.df_prec[self.masks[key]][sel_vmr].values,
                 dims=["time","mz"],
                 coords=dict(
-                    mz=self.df_data.columns.values,
+                    mz=self.df_data[sel_vmr].columns.values,
                     time=time,
                 ),
                 attrs=dict(
@@ -2550,10 +2552,10 @@ class PTR_data(object):
             
             if not (self.df_zero is None):
                 da_zero = xr.DataArray(
-                    data=self.df_zero[self.masks[key]].values,
+                    data=self.df_zero[self.masks[key]][sel_vmr].values,
                     dims=["time","mz"],
                     coords=dict(
-                        mz=self.df_zero.columns.values,
+                        mz=self.df_zero[sel_vmr].columns.values,
                         time=time,
                     ),
                     attrs=dict(
@@ -2564,10 +2566,10 @@ class PTR_data(object):
                 data_vars['zero'] = da_zero
 
                 da_zero_prec = xr.DataArray(
-                    data=self.df_zero_prec[self.masks[key]].values,
+                    data=self.df_zero_prec[self.masks[key]][sel_vmr].values,
                     dims=["time","mz"],
                     coords=dict(
-                        mz=self.df_zero.columns.values,
+                        mz=self.df_zero[sel_vmr].columns.values,
                         time=time,
                     ),
                     attrs=dict(
@@ -2579,10 +2581,10 @@ class PTR_data(object):
                 
             if not (self.df_racc is None):
                 da_acc = xr.DataArray(
-                    data=self.df_racc[self.masks[key]].mul(abs(self.df_data[self.masks[key]])).values,
+                    data=self.df_racc[self.masks[key]].mul(abs(self.df_data[self.masks[key]]))[sel_vmr].values,
                     dims=["time","mz"],
                     coords=dict(
-                        mz=self.df_data.columns.values,
+                        mz=self.df_data[sel_vmr].columns.values,
                         time=time,
                     ),
                     attrs=dict(
