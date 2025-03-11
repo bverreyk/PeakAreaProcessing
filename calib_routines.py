@@ -76,6 +76,11 @@ def get_Q_PTRMS_corrected(P_inlet, P_inlet_unc, campaign='Vie_2022'):
         P_inlet = min(P_inlet,620) # Limit upper value p_inlet
         P_inlet = max(580,P_inlet) # limit lower value p_inlet
 
+        a = np.nan
+        b = np.nan
+        c = np.nan
+        d = np.nan
+
         if campaign == 'BE-Vie_2022':
             a = 0.00000047
             b = -0.00080535

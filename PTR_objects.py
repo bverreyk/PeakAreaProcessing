@@ -1057,7 +1057,8 @@ class TOF_campaign(object):
                                 month = t_stop.month,
                                 day = t_stop.day,
                                 tzinfo = self.time_info['tz_in']
-                                )            
+                                )
+            
             stop = stop + dt.timedelta(hours=24)
             
             n_intervals = np.ceil((stop-start)/self.processing_config['processing_interval'])
