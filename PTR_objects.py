@@ -96,9 +96,10 @@ def get_timezone(offset):
 class TOF_campaign(object):
     def __init__(self, name, dir_base, data_input_level, data_output_level, 
                  data_config, processing_config,
-                 year = None, instrument='TOF4000',
-                 calibrations_analysis='integrated',
-                 mz_selection={'method':None},time_info={'IDA_output':'UTC','PAP_output':'UTC+1','anc_in':'UTC+1'}):
+                 year = None, instrument = 'TOF4000',
+                 calibrations_analysis = 'integrated', calib_bottle_change = False, 
+                 hdf5_files = False,
+                 mz_selection = {'method':None}, time_info = {'IDA_output':'UTC','PAP_output':'UTC+1','anc_in':'UTC+1'}):
         '''
         name - string
           Contains the name of the analysis/campaign, the first subdirectory for 
@@ -234,6 +235,7 @@ class TOF_campaign(object):
         if not calibrations_analysis in ('integrated', 'dedicated'):
             raise ValueError
         self.calibrations_analysis = calibrations_analysis
+        self.calib_bottle_change = calib_bottle_change
 
         ## Processing configuration        
         keywords = ['acc_interval',
@@ -306,16 +308,23 @@ class TOF_campaign(object):
         self.data_input_level = data_input_level
         if self.data_input_level == 'Archived':
             full_archive = True
-            
-        self.df_file_list_info = self.get_files_dataframe(full_archive)
-             
+        
+        try:
+            self.df_file_list_info = self.get_files_dataframe(full_archive,hdf5_files=hdf5_files)
+        except:
+            print('Error in retrieving available data.')
+            print('Creating hdf5_files.csv in output log')
+            list_IDA = self.get_list_hdf5_IDA()
+            df = pd.DataFrame(data=list_IDA,columns=['file'])
+            df.to_csv('{}hdf5_files.csv'.format(self.dir_o_log))
+           
         ## create clusters dataframe
         self.df_clusters = self.get_df_clusters()
 
     def __str__(self):
         return self.name
     
-    def get_files_dataframe(self, full_archive = False):
+    def get_files_dataframe(self, full_archive = False, hdf5_files=False):
         '''
         Datafiles and start/end times excluding dedicated calibrations.
         '''
@@ -329,7 +338,10 @@ class TOF_campaign(object):
             
         if not full_archive:
             print('Gather data on all files')
-            list_hdf5 = self.get_list_hdf5_IDA()
+            if hdf5_files:
+                list_hdf5 = pd.read_csv('{}hdf5_files.csv'.format(self.dir_o_log)).file
+            else:
+                list_hdf5 = self.get_list_hdf5_IDA()
             files = []
             t_min = []
             t_max = []
@@ -446,7 +458,7 @@ class TOF_campaign(object):
         x = np.array(x)
         y = np.array(y)
         return x, y, n
-        
+    
     def get_clustering_DBSCAN(self, eps, min_samples, x = None, y = None):
         if ((x is None) or (y is None)):
             x, y, n = self.get_clustering_info()
@@ -552,13 +564,15 @@ class TOF_campaign(object):
     def add_anc_df_clusters(self, df_clusters):
         df_clusters['k [1.e-9 cm3 molecule-1 s-1]'] = self.processing_config['k_reac_default']
         df_clusters['Xr0'] = self.processing_config['Xr0_default']
-        df_clusters['multiplier'] = 1.
-        return df_clusters
+        df_clusters['FY'] = 1. # Fragmentation yield
+        df_clusters['IF'] = 1. # Isotopic multiplication factor
         
+        return df_clusters
     
     def get_df_clusters(self):
         if self.mz_selection['archived']:
             df_clusters = pd.read_csv('{}clusters.csv'.format(self.dir_o_log),index_col=0)
+            
         
         else:
             if self.mz_selection['method'] == 'cluster':
@@ -679,13 +693,42 @@ class TOF_campaign(object):
         check_create_output_dir(dir_o_cal)
         return dir_o_cal
     
-    def get_archived_calibrations(self, tr_corrected=True, deconstructed=True):
+    def get_calibration_ancillary(self, date):
         year = self.year[0]
-        print('Warning: calibration mixtures is expected not to change from the first year')
+        print('Calibration ancilary input is expected to be located in the first year of measurements.')
         base_path = '{1}{0}{2}{0}{3}{0}Misc{0}Calibrations{0}input{0}'.format(os.sep,self.dir_base,year,self.instrument)
-        calibration_ancillary = pd.read_csv('{}Calibration_Ancillary.csv'.format(base_path))
-        calibration_ancillary.set_index('mz_exact',inplace=True)
+        if not self.calib_bottle_change:
+            calibration_ancillary = pd.read_csv('{}Calibration_Ancillary.csv'.format(base_path))
+            
+        else:
+            calib_dict = {}
+            # YYYYMMDD_HHMM from when the bottle was put in place
+            list_calib_anc = glob.glob('{}Calibration_Ancillary_????????_????.csv'.format(base_path))
 
+            reference = None
+            diff = None
+            for f in list_calib_anc:
+                dt_tmp = dt.datetime.strptime(f[-17:-4],'%Y%m%d_%H%M').replace(tzinfo=self.time_info['tz_in']) # datetime temporary
+                td_tmp = date - dt_tmp # timedelta temporary
+                if td_tmp < dt.timedelta(0):
+                    continue
+                    
+                if reference is None:
+                    reference = f
+                    diff = td_tmp
+                    continue
+                    
+                if diff > td_tmp:
+                    reference = f
+                    diff = td_tmp
+            
+            print('Calibration ancillary file: ', reference)
+            calibration_ancillary = pd.read_csv(reference)
+        
+        calibration_ancillary.set_index('mz_exact',inplace=True)        
+        return calibration_ancillary
+    
+    def get_archived_calibrations(self, tr_corrected=True, deconstructed=True):
         dir_o_cal = self.get_dir_o_calib()
         
         f_calibrations = '{}calibrations.csv'.format(dir_o_cal)
@@ -748,7 +791,7 @@ class TOF_campaign(object):
             df_calibrations_racc  = None
             df_calibrations_rprec = None
         
-        return df_calibrations, df_calibrations_rprec, df_calibrations_racc, df_transmission, df_stability, df_anc, calibration_ancillary
+        return df_calibrations, df_calibrations_rprec, df_calibrations_racc, df_transmission, df_stability, df_anc
     
     def archive_calibrations(self, df_calibrations, df_transmission, df_stability, df_anc):
         dir_o_cal = self.get_dir_o_calib()
@@ -769,7 +812,7 @@ class TOF_campaign(object):
     def process_calibrations(self):
         print('start process calibrations, {}'.format(self.calibrations_analysis))
         
-        df_calibrations, df_calibrations_rprec, df_calibrations_racc, df_transmission, df_stability, df_anc, calibration_ancillary = self.get_archived_calibrations(tr_corrected=False, deconstructed=False)
+        df_calibrations, df_calibrations_rprec, df_calibrations_racc, df_transmission, df_stability, df_anc = self.get_archived_calibrations(tr_corrected=False, deconstructed=False)
         
         list_hdf5_calib = self.get_list_hdf5_IDA_calibrations()
         for f_hdf5 in list_hdf5_calib:
@@ -810,6 +853,8 @@ class TOF_campaign(object):
                      ]
             
             dir_o_cal = self.get_dir_o_calib()
+            calibration_ancillary = self.get_calibration_ancillary(t_start+((t_stop-t_start)/2))
+
             new_trans, new_calib, new_stability, new_anc = PTR_data_object.process_calibration(calibration_ancillary, dir_o_cal, 
                                                                                                **{key: self.processing_config[key] for key in kwords}, 
                                                                                                precision_calc=self.processing_config['precision_calc'],
@@ -841,6 +886,7 @@ class TOF_campaign(object):
             self.archive_calibrations(df_calibrations, df_transmission, df_stability, df_anc)
             
             print('--done--')
+            del PTR_data_object
 
         return None
 
@@ -856,8 +902,9 @@ class TOF_campaign(object):
         return dict_k_react_mz
     
     def get_multiplier_mz(self, df_clusters):
-        mask = (df_clusters.multiplier != 1.)
-        dict_multiplier = df_clusters[mask].multiplier.to_dict()
+        multiplier = df_clusters.IF/df_clusters.FY
+        mask = (multiplier != 1.)
+        dict_multiplier = multiplier[mask].to_dict()
         return dict_multiplier
     
     def get_transmissionCoefficients(self, mz_function, dt_axis, df_transmission, df_clusters, mz_func = 'interp', t_interp = 'nearest', t_pairing='both'):
@@ -1000,7 +1047,6 @@ class TOF_campaign(object):
                 
         return df_cc_clusters, df_cc_clusters_rprec, df_cc_clusters_racc
     
-
     def process(self, ongoing = False, t_start = None, t_stop=None, masks = [], output_threshold = 1, file_format = 'conf0', masses=[33.033]):
         '''
         masks: array of strings, contains the masks for which output is asked,
@@ -1014,7 +1060,7 @@ class TOF_campaign(object):
         # Check, process and archive calibrations
         #########################################
         self.process_calibrations()
-        df_calibrations, df_calibrations_rprec, df_calibrations_racc, df_transmission, df_stability, df_anc, calibration_ancillary = self.get_archived_calibrations()
+        df_calibrations, df_calibrations_rprec, df_calibrations_racc, df_transmission, df_stability, df_anc = self.get_archived_calibrations(tr_corrected=True, deconstructed=True)
         
         # Anc: Calibration breaks
         #########################
@@ -1502,6 +1548,8 @@ class PTR_data(object):
                 continue
             if 'invalid'in key:
                 continue
+            if 'trimmed' in key:
+                continue
             tmp['{}_trimmed'.format(key)] = msk_r.get_trimmed_mask(self.masks[key],self.df_data.index,tdelta_after_start=tdelta_trim_start,tdelta_before_stop=tdelta_trim_stop)
     
         self.masks.update(tmp)
@@ -1561,7 +1609,7 @@ class PTR_data(object):
         
         if ((mask_calc_zero is None) or
             (mask_calc_zero.sum() == 0)):
-            print('Error: No zero measurement available from {} to {}'.format(self.df_data.index.min().strftime(format='%Y-%m-%d %H:%M %Z'),self.df_data.index.max().strftime(format='%Y-%m-%d %H:%M %Z')))
+            print('Error: No representative zero measurement available from {} to {}'.format(self.df_data.index.min().strftime(format='%Y-%m-%d %H:%M %Z'),self.df_data.index.max().strftime(format='%Y-%m-%d %H:%M %Z')))
             raise ValueError
         
         df_I_tmp = self.df_data.copy()
@@ -1881,6 +1929,10 @@ class PTR_data(object):
             print('Overwriting the zero and calibration mask values from inferred.')
             self.masks['zero'] = mask_zero
             self.masks['calib'] = mask_calib
+            
+            # if inferred, trim 10 seconds before and after identified switch
+            self.trim_masks(dt.timedelta(seconds=10), dt.timedelta(seconds=10))
+
 
         # Zero interval averaging mask
         mask_calc_zero = msk_r.get_representative_mask_from_multiple_intervals(self.df_data, self.masks['zero'], tdelta_buf_zero,  tdelta_avg_zero, tdelta_min_zero)
@@ -1930,6 +1982,10 @@ class PTR_data(object):
                                                                   match_switches=match_switches,
                                                                   version=2)
         self.masks['zero'] = mask_zero
+        self.masks['calib'] = mask_calib
+
+        # Trim the masks with a standard wider buffer as the infering may produce some errors
+        self.trim_masks(dt.timedelta(seconds=10), dt.timedelta(seconds=10))
         
         # Get averaging masks
         mask_calc_zero = msk_r.get_representative_mask_from_multiple_intervals(self.df_data,mask_zero,tdelta_buf_zero,tdelta_avg_zero, tdelta_min_zero)
@@ -2319,12 +2375,19 @@ class PTR_data(object):
         if len(masses)==0:
             mz_sel = self.df_data.columns.values
         else:
-            mz_sel = mz_r.select_mz_clusters_from_exact(masses, self.df_clusters)
+            tmp = mz_r.select_mz_clusters_from_exact(masses, self.df_clusters)
+            mz_sel = self.df_data.columns.intersection(tmp)
+            mz_mis = mz_sel.difference(tmp)
     
         df_data = self.df_data[mz_sel]*1.e3
         df_prec = self.df_prec[mz_sel]*1.e3
         df_DL = 3.*self.df_zero_prec[mz_sel]*1.e3
         df_expUnc = 2.*(self.df_prec[mz_sel].pow(2)+(self.df_data[mz_sel]*self.df_racc[mz_sel]).pow(2)).pow(0.5)*1.e3
+
+        df_data[mz_mis] = np.nan
+        df_prec[mz_mis] = np.nan
+        df_DL[mz_mis] = np.nan
+        df_expUnc[mz_mis] = np.nan
 
         # df_zero = self.df_zero[mz_sel]*1.e3
         # df_zero_prec = self.df_zero_prec[mz_sel]*1.e3
@@ -2356,6 +2419,8 @@ class PTR_data(object):
         df_flag[((df_data<df_DL) & 
                  (df_flag != 0.684) &
                  (df_flag != 0.999))] = 0.147
+        
+        df_flag[mz_mis] = 0.147
     
         df_data.columns = ['{:.4f}'.format(col) for col in df_data.columns]
         df_expUnc.columns = ['{:.4f}_expUnc'.format(col) for col in df_expUnc.columns]
@@ -2458,7 +2523,7 @@ class PTR_data(object):
                     units="atomic mass unit",
                 ),
             )
-        
+            
             limits_max = xr.DataArray(
                 data=self.df_clusters[tmp_mask].cluster_max.values,
                 dims=["mz"],
@@ -2483,11 +2548,15 @@ class PTR_data(object):
                 ),
             )
             
+            # Set the first principles VMR CC parameters to NaN for directly calibrated compounds
+            tmp = self.df_clusters[tmp_mask][['k [1.e-9 cm3 molecule-1 s-1]','FY', 'IF']]
+            cal_sel = tmp.index.intersection(df_cc_coeff.columns)
+            tmp[cal_sel] = np.nan
             k_reac = xr.DataArray(
-                data=self.df_clusters[tmp_mask]['k [1.e-9 cm3 molecule-1 s-1]'].values,
+                data=tmp['k [1.e-9 cm3 molecule-1 s-1]'].values,
                 dims=["mz"],
                 coords=dict(
-                    mz=self.df_clusters[tmp_mask].index.values,
+                    mz=tmp.index.values,
                 ),
                 attrs=dict(
                     description="Ion/Molecule reaction rate constant",
@@ -2495,14 +2564,26 @@ class PTR_data(object):
                 ),
             )
             
-            multiplier = xr.DataArray(
-                data=self.df_clusters[tmp_mask].multiplier.values,
+            FY = xr.DataArray(
+                data=tmp.FY.values,
                 dims=["mz"],
                 coords=dict(
-                    mz=self.df_clusters[tmp_mask].index.values,
+                    mz=tmp.index.values,
                 ),
                 attrs=dict(
-                    description="Multiplier to correct for fragmentation & isotopic ratio",
+                    description="Fragmentation yield to correct signal due to fragmentation in the drift tube",
+                    units="",
+                ),
+            )
+            
+            IF = xr.DataArray(
+                data=tmp.IF.values,
+                dims=["mz"],
+                coords=dict(
+                    mz=tmp.index.values,
+                ),
+                attrs=dict(
+                    description="Isotopic factor to correct isotopic ratio",
                     units="",
                 ),
             )
@@ -2546,7 +2627,7 @@ class PTR_data(object):
 
             data_vars = {'Signal':da_data,'Signal_precision':da_prec,
                          'cluster_min':limits_min,'cluster_max':limits_max,
-                         'Xr0':Xr0,'k_reac':k_reac,'multiplier':multiplier,
+                         'Xr0':Xr0,'k_reac':k_reac,'FY':FY,'IF':IF,
                          'transmission':transmission,'calibration':calibration,
                          'MeasurementsTimeInterval':da_sst}
             

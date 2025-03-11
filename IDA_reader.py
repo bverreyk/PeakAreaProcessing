@@ -229,7 +229,12 @@ class IDA_data(object):
         times = np.array(times)
         times = times.flatten()
             
-        times = pd.to_datetime(times-719529.0, unit='D').tz_localize(self.tz_info)
+        try:
+            times = pd.to_datetime(times-719529.0, unit='D').tz_localize(self.tz_info)
+        except:
+            print('Error in time axis for file: ', self.hdf5)
+            print('Correct time axis in input and try again.')
+            raise ValueError
         
         f.close()
         
