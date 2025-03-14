@@ -31,7 +31,7 @@ except:
     import IDA_reader as IDA_reader
     import mask_routines as msk_r
 
-__version__ = 'v1.2.1'
+__version__ = 'v2.0.0'
 
 ######################
 ## Support routines ##
@@ -762,7 +762,13 @@ class TOF_campaign(object):
             if tr_corrected:
                 # Correct calibration factors here to obtain it in trcncps ppbv-1
                 df_cc_tmp = df_calibrations.copy()
-                df_cc_tmp.drop(['I_cps_H3O1_21', 'I_cps_H5O2_38','file','ctime'],axis=1,inplace=True)
+                drop = ['file','ctime']
+                for key in df_cc_tmp.columns:
+                    if key.startswith('I_cps_'):
+                        drop.append(key)
+                        
+                # df_cc_tmp.drop(['I_cps_H3O1_21', 'I_cps_H5O2_38','file','ctime'],axis=1,inplace=True)
+                df_cc_tmp.drop(drop, axis=1,inplace=True)
                 df_cc_tmp.columns = [float(mz) for mz in df_cc_tmp.columns]
                 
                 df_tr_interp = df_transmission.drop(['file','ctime'],axis=1)
@@ -988,7 +994,12 @@ class TOF_campaign(object):
         '''
         df_tmp = df_calibrations.copy()
         df_tmp.set_index('ctime',inplace=True)
-        df_tmp.drop(['file','I_cps_H3O1_21','I_cps_H5O2_38'],axis=1,inplace=True)
+        # df_tmp.drop(['file','I_cps_H3O1_21','I_cps_H5O2_38'],axis=1,inplace=True)
+        drop = ['file']
+        for col in df_tmp.columns:
+            if col.startswith('I_cps_'):
+                drop.append(col)
+        df_tmp.drop(drop, axis=1,inplace=True)
         df_tmp.columns = [float(col) for col in df_tmp.columns]
 
         df_tmp_rprec = df_calibrations_rprec.copy()
@@ -1171,7 +1182,7 @@ class TOF_campaign(object):
                 print('Get ancillary')
                 dt_axis = PTR_data_object.df_data.index
                 df_tr_coeff = self.get_transmissionCoefficients('interp', dt_axis, df_transmission, PTR_data_object.df_clusters, t_pairing = t_pairing) # Get transmissions
-                PTR_data_object.Tr_PH1_to_PH2 = df_tr_coeff[PTR_data_object.mz_col_38].mean()**-1.                                                      # Obtain Tr_PH1_to_PH2 from the transmission dataframe
+                PTR_data_object.Tr_PH1_to_PH2 = df_tr_coeff[PTR_data_object.mz_col_primIon['H5O2_38.033']].mean()**-1.                                                      # Obtain Tr_PH1_to_PH2 from the transmission dataframe
                 
                 dict_Xr0 = self.get_Xr0_mz(PTR_data_object.df_clusters)                                                                                 # Get Xr0 dictionary for non default values
                 
@@ -1238,7 +1249,13 @@ class TOF_campaign(object):
     
 def deconstruct_df_calibrations(df_calibrations):
     # Exctract the uncertainty columns out of the calibrations file
-    tmp_calibrations = df_calibrations.drop(['I_cps_H3O1_21', 'I_cps_H5O2_38','file'],axis=1)
+    # tmp_calibrations = df_calibrations.drop(['I_cps_H3O1_21', 'I_cps_H5O2_38','file'],axis=1)
+    drop = ['file']
+    for col in df_calibrations.columns:
+        if col.startswith('I_cps'):
+            drop.append(col)
+    tmp_calibrations = df_calibrations.drop(drop, axis=1)
+
     mz_columns = []
     mz_rprec_columns = []
     mz_racc_columns  = []
@@ -1299,7 +1316,7 @@ def to_matlabtime(dt_ax):
 class PTR_data(object):
     '''PTR data object to be transformed to concentrations.'''
     
-    def __init__(self, df_data, data_description, data_units, sst, sst_units, df_P_drift, df_U_drift, df_T_drift, df_P_inlet, masks, df_clusters):
+    def __init__(self, df_data, data_description, data_units, sst, sst_units, df_P_drift, df_U_drift, df_T_drift, df_P_inlet, masks, df_clusters, list_primary_ions=None, df_I_primary_ion=None):
         self.df_data = df_data
         self.data_description = data_description
         self.data_units = data_units
@@ -1333,10 +1350,50 @@ class PTR_data(object):
         
         self.df_clusters = df_clusters
 
-        self.mz_col_21 = mz_r.select_mz_cluster_from_exact(21.022, self.df_clusters, tol = 0.01, mute = True)
-        self.mz_col_38 = mz_r.select_mz_cluster_from_exact(38.033, self.df_clusters, tol = 0.01, mute = True)
+        self.list_primary_ions = [
+#            'H3O1_19.018',
+            'H3O1_21.022',
+#            'C1O1_29.002',
+#            'N2_29.013',
+            'N1O1_29.997',
+            'N1O1_31.005',
+#            'O2_31.989',
+#            'O2_32.997',
+            'O2_33.997',
+#            'H5O2_37.028',
+            'H5O2_38.033',
+#            'H5O2_39.033',
+#            'H7O3_55.039',
+#            'H9O4_73.050',
+            ]
+            
+        if not list_primary_ions is None:
+            self.list_primary_ions = list_primary_ions
+        
+        if not 'H3O1_21.022' in self.list_primary_ions:
+            print('Unable to do normalisation without "H3O1_21.022" in list_primary_ions')
+            raise ValueError
+            
+        if not 'H5O2_38.033' in self.list_primary_ions:
+            print('Unable to do normalisation without "H5O2_38.033" in list_primary_ions')
+            raise ValueError
+
+        
+        self.mz_col_primIon = {}
+        for prim_ion in self.list_primary_ions:
+            mass = float(prim_ion.split('_')[-1])
+            col = mz_r.select_mz_cluster_from_exact(mass, self.df_clusters, tol = 0.01, mute = True)
+            if np.isnan(col):
+                continue
+            
+            self.mz_col_primIon[prim_ion] = col
+        
+        
+#        self.mz_col_21 = mz_r.select_mz_cluster_from_exact(21.022, self.df_clusters, tol = 0.01, mute = True)
+#        self.mz_col_38 = mz_r.select_mz_cluster_from_exact(38.033, self.df_clusters, tol = 0.01, mute = True)
         
         self.Tr_PH1_to_PH2 = None
+        self.default_CC_kinetic = None
 
         # SISWEB
         # self.FPH1 = 500
@@ -1361,6 +1418,7 @@ class PTR_data(object):
         # IONICON multiplier
         # self.FPH1 = 500
         # self.FPH2 = 750
+        
         
     def __del__(self):
         del self.df_data
@@ -1390,10 +1448,13 @@ class PTR_data(object):
         
         del self.df_clusters
         
-        del self.mz_col_21
-        del self.mz_col_38
+        del self.list_primary_ions
+        del self.mz_col_primIon
+        # del self.mz_col_21
+        # del self.mz_col_38
         
         del self.Tr_PH1_to_PH2
+        del self.default_CC_kinetic
 
         del self.FPH1
         del self.FPH2
@@ -1427,6 +1488,7 @@ class PTR_data(object):
             PTR_data_object.df_racc = self.df_racc[mask]
 
         PTR_data_object.Tr_PH1_to_PH2 = self.Tr_PH1_to_PH2
+        PTR_data_object.default_CC_kinetic = self.default_CC_kinetic
 
         PTR_data_object.FPH1 = self.FPH1
         PTR_data_object.FPH2 = self.FPH2
@@ -1434,10 +1496,14 @@ class PTR_data(object):
         return PTR_data_object
     
     def get_PTR_data_subsample_mz(self, mz_selection):
-        if not self.mz_col_21 in mz_selection:
-            mz_selection.append(self.mz_col_21)
-        if not self.mz_col_38 in mz_selection:
-            mz_selection.append(self.mz_col_38)
+        # if not self.mz_col_21 in mz_selection:
+        #    mz_selection.append(self.mz_col_21)
+        #if not self.mz_col_38 in mz_selection:
+        #    mz_selection.append(self.mz_col_38)
+        # Add all primary ion signals
+        for key, mz_col in self.mz_col_primIon.keys():
+            if not mz_col in mz_selection:
+                mz_selection.append(mz_col)
 
         PTR_data_object = PTR_data(self.df_data[mz_selection], self.data_description, self.data_units, self.sst, self.sst_units,
                                    self.df_P_drift, self.df_U_drift, self.df_T_drift, self.df_P_inlet, 
@@ -1552,13 +1618,16 @@ class PTR_data(object):
             print('Error: No representative zero measurement available from {} to {}'.format(self.df_data.index.min().strftime(format='%Y-%m-%d %H:%M %Z'),self.df_data.index.max().strftime(format='%Y-%m-%d %H:%M %Z')))
             raise ValueError
         
-        # zero correction for the primary ions is not applicable
         df_I_tmp = self.df_data.copy()
-        df_I_tmp[[self.mz_col_21,self.mz_col_38]] = 0
-        
         df_I_tmp_prec = self.df_prec.copy()
-        df_I_tmp_prec[[self.mz_col_21,self.mz_col_38]] = 0
         
+        # zero correction for the primary ions is not applicable
+        # df_I_tmp[[self.mz_col_21,self.mz_col_38]] = 0
+        # df_I_tmp_prec[[self.mz_col_21,self.mz_col_38]] = 0
+        subset = df_I_tmp.columns.intersection(self.mz_col_primIon.values())
+        df_I_tmp[subset] = 0
+        df_I_tmp_prec[subset] = 0
+
         if zero == 'constant':
             print('Zero correction constant: precision from std on all zero measuremnts in processed data sample.')
             df_I_zero = df_I_tmp[mask_calc_zero].mean()
@@ -1662,9 +1731,11 @@ class PTR_data(object):
         df_ncr_prec = self.df_prec.copy() # copy the original dataframe as to make sure we do not change it
         df_ncr_rprec = df_ncr_prec/abs(df_ncr)
         
-        I_cr_21, I_cr_38 = df_ncr[self.mz_col_21], df_ncr[self.mz_col_38]
-        I_cr_21_prec, I_cr_38_prec = df_ncr_prec[self.mz_col_21], df_ncr_prec[self.mz_col_38]
-        
+        # I_cr_21, I_cr_38 = df_ncr[self.mz_col_21], df_ncr[self.mz_col_38]
+        # I_cr_21_prec, I_cr_38_prec = df_ncr_prec[self.mz_col_21], df_ncr_prec[self.mz_col_38]
+        I_cr_21, I_cr_38 = df_ncr[self.mz_col_primIon['H3O1_21.022']], df_ncr[self.mz_col_primIon['H5O2_38.033']]
+        I_cr_21_prec, I_cr_38_prec = df_ncr_prec[self.mz_col_primIon['H3O1_21.022']], df_ncr_prec[self.mz_col_primIon['H5O2_38.033']]
+
         # Correct for Xr0 default
         #########################
         Xr0 = Xr0_default
@@ -1700,9 +1771,11 @@ class PTR_data(object):
         df_ncr_prec = df_ncr_rprec.mul(abs(df_ncr))
         
         # Reset the primary ion signals
-        ###############################        
-        df_ncr[self.mz_col_21], df_ncr[self.mz_col_38] = I_cr_21, I_cr_38
-        df_ncr_prec[self.mz_col_21], df_ncr_prec[self.mz_col_38] = I_cr_21_prec, I_cr_38_prec
+        ###############################
+        # df_ncr[self.mz_col_21], df_ncr[self.mz_col_38] = I_cr_21, I_cr_38
+        # df_ncr_prec[self.mz_col_21], df_ncr_prec[self.mz_col_38] = I_cr_21_prec, I_cr_38_prec
+        df_ncr[self.mz_col_primIon['H3O1_21.022']], df_ncr[self.mz_col_primIon['H5O2_38.033']] = I_cr_21, I_cr_38
+        df_ncr_prec[self.mz_col_primIon['H3O1_21.022']], df_ncr_prec[self.mz_col_primIon['H5O2_38.033']] = I_cr_21_prec, I_cr_38_prec
 
         return df_ncr, df_ncr_prec
     
@@ -1754,6 +1827,7 @@ class PTR_data(object):
         
         CC_kinetic = k_reac_default*N_DT*t_reac*1.e-3
         CC_kinetic = CC_kinetic*1.e-9 # Correct for the units in k_default
+        self.default_CC_kinetic = CC_kinetic
 
         df_ppbv = self.df_data.copy()
         df_ppbv_prec = self.df_prec.copy()
@@ -1817,9 +1891,10 @@ class PTR_data(object):
         del [df_tmp_rprec]
         
         # The transformation of primary ions is not relevant so revert here
-        for mz_col in [self.mz_col_21, self.mz_col_38]:
-            df_ppbv[mz_col] = self.df_data[mz_col]
-            df_ppbv_racc[mz_col] = 0.
+        # for mz_col in [self.mz_col_21, self.mz_col_38]:
+        subset = df_ppbv.columns.intersection(self.mz_col_primIon.values())
+        df_ppbv[subset] = self.df_data[subset]
+        df_ppbv_racc[subset] = 0.
         
         return df_ppbv, df_ppbv_prec, df_ppbv_racc
     
@@ -1976,8 +2051,11 @@ class PTR_data(object):
             print(self.data_units)
             raise ValueError
         
+        # self.Tr_PH1_to_PH2 = calib_r.get_Tr_PH1_to_PH2(self.df_data, mask_calc_zero, mask_calc_calib, 
+        #                                                self.mz_col_21, self.mz_col_38, anc[0], anc[1], N_DT, t_reac,
+        #                                                FPH1=self.FPH1, FPH2=self.FPH2,Xr0_default=Xr0_default)
         self.Tr_PH1_to_PH2 = calib_r.get_Tr_PH1_to_PH2(self.df_data, mask_calc_zero, mask_calc_calib, 
-                                                       self.mz_col_21, self.mz_col_38, anc[0], anc[1], N_DT, t_reac,
+                                                       self.mz_col_primIon['H3O1_21.022'], self.mz_col_primIon['H5O2_38.033'], anc[0], anc[1], N_DT, t_reac,
                                                        FPH1=self.FPH1, FPH2=self.FPH2,Xr0_default=Xr0_default)
         
         N = 21
@@ -2034,7 +2112,8 @@ class PTR_data(object):
             # Show plots to compute Xr0
             f, axs = plt.subplots(1,2,figsize=(7.5,3))
             axs = axs.flatten()
-            self.df_data[[self.mz_col_38,mz_col]].plot(ax=axs[0],linewidth=1)
+            # self.df_data[[self.mz_col_38,mz_col]].plot(ax=axs[0],linewidth=1)
+            self.df_data[[self.mz_col_primIon['H5O2_38.033'],mz_col]].plot(ax=axs[0],linewidth=1)
             axs[0].set_ylabel('PA [cps]')
             axs[0].legend()
             
@@ -2137,8 +2216,12 @@ class PTR_data(object):
             print(self.data_units)
             raise ValueError
         
+        # self.Tr_PH1_to_PH2 = calib_r.get_Tr_PH1_to_PH2(self.df_data, mask_calc_zero, mask_calc_calib, 
+        #                                                self.mz_col_21, self.mz_col_38, anc[0], anc[1], N_DT, t_reac, 
+        #                                                FPH1=self.FPH1, FPH2=self.FPH2,Xr0_default=Xr0_default)
+
         self.Tr_PH1_to_PH2 = calib_r.get_Tr_PH1_to_PH2(self.df_data, mask_calc_zero, mask_calc_calib, 
-                                                       self.mz_col_21, self.mz_col_38, anc[0], anc[1], N_DT, t_reac, 
+                                                       self.mz_col_primIon['H3O1_21.022'], self.mz_col_primIon['H5O2_38.033'], anc[0], anc[1], N_DT, t_reac,
                                                        FPH1=self.FPH1, FPH2=self.FPH2,Xr0_default=Xr0_default)
         
         # Get transmissions and calibration coefficients
@@ -2224,9 +2307,12 @@ class PTR_data(object):
         cc_coeff['ctime'] = ctime.round('1s')
         rstd['ctime']     = ctime.round('1s')
         
-        cc_coeff['I_cps_H3O1_21'] = self.df_data[mask_calc_calib][self.mz_col_21].mean()
-        cc_coeff['I_cps_H5O2_38'] = self.df_data[mask_calc_calib][self.mz_col_38].mean()
-        
+        # cc_coeff['I_cps_H3O1_21'] = self.df_data[mask_calc_calib][self.mz_col_21].mean()
+        # cc_coeff['I_cps_H5O2_38'] = self.df_data[mask_calc_calib][self.mz_col_38].mean()
+        for key, val in self.mz_col_primIon.items():
+            cc_coeff['I_cps_{}'.format(key)] = self.df_data[mask_calc_calib][val].mean()
+            
+            
         return tr_coeff, cc_coeff, rstd, anc_info
     
     def save_plot_masks(self, mz, additional_masks = {}, dir_o = './'):
@@ -2397,6 +2483,8 @@ class PTR_data(object):
                 continue
             
             mz = self.df_data.columns.values
+            sel_vmr = self.df_data.columns.difference(self.mz_col_primIon.values())
+            sel_primIon = self.df_data.columns.intersection(self.mz_col_primIon.values())
             
             if time_info is None:
                 time = self.df_data[self.masks[key]].index.values
@@ -2405,10 +2493,10 @@ class PTR_data(object):
                 out_time = pd.to_datetime(time.min()) # Convert from numpy datetine to dt.datetime
 
             da_data = xr.DataArray(
-                data=self.df_data[self.masks[key]].values,
+                data=self.df_data[self.masks[key]][sel_vmr].values,
                 dims=["time","mz"],
                 coords=dict(
-                    mz=self.df_data.columns.values,
+                    mz=self.df_data[sel_vmr].columns.values,
                     time=time,
                 ),
                 attrs=dict(
@@ -2418,15 +2506,41 @@ class PTR_data(object):
             )
             
             da_prec = xr.DataArray(
-                data=self.df_prec[self.masks[key]].values,
+                data=self.df_prec[self.masks[key]][sel_vmr].values,
                 dims=["time","mz"],
                 coords=dict(
-                    mz=self.df_data.columns.values,
+                    mz=self.df_data[sel_vmr].columns.values,
                     time=time,
                 ),
                 attrs=dict(
                     description=self.prec_description,
                     units=self.prec_units,
+                ),
+            )
+            
+            da_primIon = xr.DataArray(
+                data=self.df_data[self.masks[key]][sel_primIon].values,
+                dims=["time","mz"],
+                coords=dict(
+                    mz=self.df_data[sel_primIon].columns.values,
+                    time=time,
+                ),
+                attrs=dict(
+                    description="Primary ion signals",
+                    units="Transmission corrected counts per second",
+                ),
+            )
+            
+            da_primIon_prec = xr.DataArray(
+                data=self.df_prec[self.masks[key]][sel_primIon].values,
+                dims=["time","mz"],
+                coords=dict(
+                    mz=self.df_data[sel_primIon].columns.values,
+                    time=time,
+                ),
+                attrs=dict(
+                    description="Precision on primary ion signals",
+                    units="Transmission corrected counts per second",
                 ),
             )
             
@@ -2470,7 +2584,8 @@ class PTR_data(object):
             # Set the first principles VMR CC parameters to NaN for directly calibrated compounds
             tmp = self.df_clusters[tmp_mask][['k [1.e-9 cm3 molecule-1 s-1]','FY', 'IF']]
             cal_sel = tmp.index.intersection(df_cc_coeff.columns)
-            tmp[cal_sel] = np.nan
+            tmp.loc[[idx in cal_sel for idx in tmp.index],:] = np.nan
+            tmp.loc[[idx in sel_primIon for idx in tmp.index],:] = np.nan
             k_reac = xr.DataArray(
                 data=tmp['k [1.e-9 cm3 molecule-1 s-1]'].values,
                 dims=["mz"],
@@ -2545,6 +2660,7 @@ class PTR_data(object):
             )
 
             data_vars = {'Signal':da_data,'Signal_precision':da_prec,
+                         'Signal_primaryIons':da_primIon,'Signal_primaryIons_prec':da_primIon_prec,
                          'cluster_min':limits_min,'cluster_max':limits_max,
                          'Xr0':Xr0,'k_reac':k_reac,'FY':FY,'IF':IF,
                          'transmission':transmission,'calibration':calibration,
@@ -2552,10 +2668,10 @@ class PTR_data(object):
             
             if not (self.df_zero is None):
                 da_zero = xr.DataArray(
-                    data=self.df_zero[self.masks[key]].values,
+                    data=self.df_zero[self.masks[key]][sel_vmr].values,
                     dims=["time","mz"],
                     coords=dict(
-                        mz=self.df_zero.columns.values,
+                        mz=self.df_zero[sel_vmr].columns.values,
                         time=time,
                     ),
                     attrs=dict(
@@ -2566,10 +2682,10 @@ class PTR_data(object):
                 data_vars['zero'] = da_zero
 
                 da_zero_prec = xr.DataArray(
-                    data=self.df_zero_prec[self.masks[key]].values,
+                    data=self.df_zero_prec[self.masks[key]][sel_vmr].values,
                     dims=["time","mz"],
                     coords=dict(
-                        mz=self.df_zero.columns.values,
+                        mz=self.df_zero[sel_vmr].columns.values,
                         time=time,
                     ),
                     attrs=dict(
@@ -2581,10 +2697,10 @@ class PTR_data(object):
                 
             if not (self.df_racc is None):
                 da_acc = xr.DataArray(
-                    data=self.df_racc[self.masks[key]].mul(abs(self.df_data[self.masks[key]])).values,
+                    data=self.df_racc[self.masks[key]].mul(abs(self.df_data[self.masks[key]]))[sel_vmr].values,
                     dims=["time","mz"],
                     coords=dict(
-                        mz=self.df_data.columns.values,
+                        mz=self.df_data[sel_vmr].columns.values,
                         time=time,
                     ),
                     attrs=dict(
@@ -2602,6 +2718,10 @@ class PTR_data(object):
             attrs = {}
             attrs['Peak Area Analysis version'] = __version__
             attrs['tz_info'] = str(time_info['tz_out'])
+            attrs['default_CC_kinetic'] = self.default_CC_kinetic.round(4)
+            attrs['FPH1'] = self.FPH1
+            attrs['FPH2'] = self.FPH2
+            
             valid_types = (str, int, float, complex, np.number, np.ndarray, list, tuple) # Valid types for serialization of netcdf output
             for key, val in processing_config.items():
                 key = 'config_{}'.format(key)
