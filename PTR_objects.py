@@ -1353,11 +1353,12 @@ class PTR_data(object):
 #            'H3O1_19.018',
             'H3O1_21.022',
 #            'C1O1_29.002',
-            'N2_29.013',
+#            'N2_29.013',
             'N1O1_29.997',
-#            'N1O1_31.005',
-            'O2_31.989',
+            'N1O1_31.005',
+#            'O2_31.989',
 #            'O2_32.997',
+            'O2_33.997',
 #            'H5O2_37.028',
             'H5O2_38.033',
 #            'H5O2_39.033',
@@ -1391,6 +1392,7 @@ class PTR_data(object):
 #        self.mz_col_38 = mz_r.select_mz_cluster_from_exact(38.033, self.df_clusters, tol = 0.01, mute = True)
         
         self.Tr_PH1_to_PH2 = None
+        self.default_CC_kinetic = None
 
         # SISWEB
         # self.FPH1 = 500
@@ -1415,6 +1417,7 @@ class PTR_data(object):
         # IONICON multiplier
         # self.FPH1 = 500
         # self.FPH2 = 750
+        
         
     def __del__(self):
         del self.df_data
@@ -1450,6 +1453,7 @@ class PTR_data(object):
         # del self.mz_col_38
         
         del self.Tr_PH1_to_PH2
+        del self.default_CC_kinetic
 
         del self.FPH1
         del self.FPH2
@@ -1483,6 +1487,7 @@ class PTR_data(object):
             PTR_data_object.df_racc = self.df_racc[mask]
 
         PTR_data_object.Tr_PH1_to_PH2 = self.Tr_PH1_to_PH2
+        PTR_data_object.default_CC_kinetic = self.default_CC_kinetic
 
         PTR_data_object.FPH1 = self.FPH1
         PTR_data_object.FPH2 = self.FPH2
@@ -1821,6 +1826,7 @@ class PTR_data(object):
         
         CC_kinetic = k_reac_default*N_DT*t_reac*1.e-3
         CC_kinetic = CC_kinetic*1.e-9 # Correct for the units in k_default
+        self.default_CC_kinetic = CC_kinetic
 
         df_ppbv = self.df_data.copy()
         df_ppbv_prec = self.df_prec.copy()
@@ -2511,6 +2517,32 @@ class PTR_data(object):
                 ),
             )
             
+            da_primIon = xr.DataArray(
+                data=self.df_data[self.masks[key]][sel_primIon].values,
+                dims=["time","mz"],
+                coords=dict(
+                    mz=self.df_data[sel_primIon].columns.values,
+                    time=time,
+                ),
+                attrs=dict(
+                    description="Primary ion signals",
+                    units="Transmission corrected counts per second",
+                ),
+            )
+            
+            da_primIon_prec = xr.DataArray(
+                data=self.df_prec[self.masks[key]][sel_primIon].values,
+                dims=["time","mz"],
+                coords=dict(
+                    mz=self.df_data[sel_primIon].columns.values,
+                    time=time,
+                ),
+                attrs=dict(
+                    description="Precision on primary ion signals",
+                    units="Transmission corrected counts per second",
+                ),
+            )
+            
             tmp_mask = self.df_clusters.index.isin(mz)
             limits_min = xr.DataArray(
                 data=self.df_clusters[tmp_mask].cluster_min.values,
@@ -2551,7 +2583,8 @@ class PTR_data(object):
             # Set the first principles VMR CC parameters to NaN for directly calibrated compounds
             tmp = self.df_clusters[tmp_mask][['k [1.e-9 cm3 molecule-1 s-1]','FY', 'IF']]
             cal_sel = tmp.index.intersection(df_cc_coeff.columns)
-            tmp[cal_sel] = np.nan
+            tmp.loc[[idx in cal_sel for idx in tmp.index],:] = np.nan
+            tmp.loc[[idx in sel_primIon for idx in tmp.index],:] = np.nan
             k_reac = xr.DataArray(
                 data=tmp['k [1.e-9 cm3 molecule-1 s-1]'].values,
                 dims=["mz"],
@@ -2626,6 +2659,7 @@ class PTR_data(object):
             )
 
             data_vars = {'Signal':da_data,'Signal_precision':da_prec,
+                         'Signal_primaryIons':da_primIon,'Signal_primaryIons_prec':da_primIon_prec,
                          'cluster_min':limits_min,'cluster_max':limits_max,
                          'Xr0':Xr0,'k_reac':k_reac,'FY':FY,'IF':IF,
                          'transmission':transmission,'calibration':calibration,
@@ -2683,6 +2717,10 @@ class PTR_data(object):
             attrs = {}
             attrs['Peak Area Analysis version'] = __version__
             attrs['tz_info'] = str(time_info['tz_out'])
+            attrs['default_CC_kinetic'] = self.default_CC_kinetic.round(4)
+            attrs['FPH1'] = self.FPH1
+            attrs['FPH2'] = self.FPH2
+            
             valid_types = (str, int, float, complex, np.number, np.ndarray, list, tuple) # Valid types for serialization of netcdf output
             for key, val in processing_config.items():
                 key = 'config_{}'.format(key)
