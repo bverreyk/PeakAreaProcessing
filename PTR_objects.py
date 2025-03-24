@@ -31,7 +31,7 @@ except:
     import IDA_reader as IDA_reader
     import mask_routines as msk_r
 
-__version__ = 'v2.0.0'
+__version__ = 'v2.0.1'
 
 ######################
 ## Support routines ##
@@ -1153,7 +1153,7 @@ class TOF_campaign(object):
                         matches += 1
                         
                     if (t_ref_after_start <= stop) and (t_ref_after_end >= start):
-                        t_pairing = 'before'
+                        t_pairing = 'after'
                         matches += 1
                         
                     if matches > 1:
@@ -1161,7 +1161,7 @@ class TOF_campaign(object):
                         print('Error: data in processing interval should be matches with dedicated before and after calibrations. Adapt the processing interval so that this is no longer the case or split explicitely.')
                         print('Split data between {}, and {}'.format(start.strftime('%Y-%m-%d %H:%M'), stop.strftime('%Y-%m-%d %H:%M')))
                         print('----')
-                        continue
+                        raise ValueError
                     
                 # Resample the data and trim the data masks
                 ###########################################
