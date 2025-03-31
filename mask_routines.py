@@ -134,11 +134,11 @@ def get_trimmed_mask(mask,time_axis,tdelta_after_start=dt.timedelta(seconds=10),
     starts, stops = get_start_stop_from_mask(mask)
     result = mask.copy()
     for start in starts:
-        to_cut = (time_axis > time_axis[start]) & (time_axis < time_axis[start]+tdelta_after_start)
+        to_cut = (time_axis >= time_axis[start]) & (time_axis <= time_axis[start]+tdelta_after_start)
         result = result & ~to_cut
         
     for stop in stops:
-        to_cut = (time_axis < time_axis[stop]) & (time_axis > time_axis[stop]-tdelta_before_stop)
+        to_cut = (time_axis <= time_axis[stop]) & (time_axis >= time_axis[stop]-tdelta_before_stop)
         result = result & ~to_cut
         
     return result
