@@ -31,7 +31,7 @@ except:
     import IDA_reader as IDA_reader
     import mask_routines as msk_r
 
-__version__ = 'v2.0.2'
+__version__ = 'v2.1.0'
 
 ######################
 ## Support routines ##
@@ -256,7 +256,9 @@ class TOF_campaign(object):
                     'Xr0_default',
                     'tdelta_trim_start',
                     'tdelta_trim_stop',
-                    'precision_calc'
+                    'precision_calc',
+                    'cc_t_interp',
+                    'tr_t_interp',
                     ]
         
         check_keys(keywords, processing_config, 'processing_config')
@@ -939,7 +941,7 @@ class TOF_campaign(object):
                 df_tr_clusters = pd.DataFrame([dict_tr_clusters])
                 df_tr_clusters.interpolate(method='values',axis=1,inplace=True)
                 
-            if t_interp == 'interp_to_data_level':
+            elif t_interp == 'interp_to_data_level':
                 # 1. Intepollate in time
                 ########################
                 tstart = dt_axis.index[0]
@@ -985,6 +987,12 @@ class TOF_campaign(object):
                 df_tr_clusters.interpolate(method='values',axis=1,inplace=True)
                 
                 df_tr_clusters.drop(columns=[c for c in df_tr_clusters.columns if c not in df_clusters[df_clusters.selected].index],inplace=True)
+            elif t_interp == 'interp_to_PAP_interval':
+                print('Error, interp_to_PAP_interval not yet coded for interpolating the transmission coefficients')
+                raise ValueError
+            else:
+                print('Error, this interpolation method is not recognised')
+                raise ValueError
 
         return df_tr_clusters
     
@@ -1181,15 +1189,25 @@ class TOF_campaign(object):
                 ##############################################################
                 print('Get ancillary')
                 dt_axis = PTR_data_object.df_data.index
-                df_tr_coeff = self.get_transmissionCoefficients('interp', dt_axis, df_transmission, PTR_data_object.df_clusters, t_pairing = t_pairing) # Get transmissions
-                PTR_data_object.Tr_PH1_to_PH2 = df_tr_coeff[PTR_data_object.mz_col_primIon['H5O2_38.033']].mean()**-1.                                                      # Obtain Tr_PH1_to_PH2 from the transmission dataframe
+                df_tr_coeff = self.get_transmissionCoefficients('interp', dt_axis, df_transmission, PTR_data_object.df_clusters,
+                                                                t_interp = self.processing_config['tr_t_interp'], t_pairing = t_pairing)                # Get transmissions
+                if df_tr_coeff.isnan().sum() == len(df_tr_coeff.values):
+                    print('----')
+                    print('Warning, no valid transmissions found to process data.')
+                    print('Check between {} and {}.'.format(start.strftime('%Y-%m-%d %H:%M'), stop.strftime('%Y-%m-%d %H:%M')))
+                    print('----')
+                    continue
+                
+                PTR_data_object.Tr_PH1_to_PH2 = df_tr_coeff[PTR_data_object.mz_col_primIon['H5O2_38.033']].mean()**-1.                                  # Obtain Tr_PH1_to_PH2 from the transmission dataframe
                 
                 dict_Xr0 = self.get_Xr0_mz(PTR_data_object.df_clusters)                                                                                 # Get Xr0 dictionary for non default values
                 
                 df_cc_coeff, df_cc_coeff_rprec, df_cc_coeff_racc = self.get_calibrationCoefficients(dt_axis, df_calibrations, 
                                                                                                     df_calibrations_rprec, 
                                                                                                     df_calibrations_racc, 
-                                                                                                    PTR_data_object.df_clusters, t_pairing = t_pairing) # Get calibration coefficients
+                                                                                                    PTR_data_object.df_clusters,
+                                                                                                    t_interp = self.processing_config['cc_t_interp'],
+                                                                                                    t_pairing = t_pairing)                              # Get calibration coefficients
 
                 k_reac_mz       = self.get_k_reac_mz(PTR_data_object.df_clusters)                                                                       # Get the reaction rate coefficients for the clusters not using the default value
                 k_reac_default  = self.processing_config['k_reac_default']                                                                              # Set the default
@@ -2490,7 +2508,7 @@ class PTR_data(object):
                 time = self.df_data[self.masks[key]].index.values
             else:
                 time = self.df_data[self.masks[key]].tz_convert(time_info['tz_out']).index
-                out_time = pd.to_datetime(time.min()) # Convert from numpy datetine to dt.datetime
+                out_time = pd.to_datetime(time.min()) # Convert from numpy datetime to dt.datetime
 
             da_data = xr.DataArray(
                 data=self.df_data[self.masks[key]][sel_vmr].values,
