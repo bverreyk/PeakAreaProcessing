@@ -31,7 +31,7 @@ except:
     import IDA_reader as IDA_reader
     import mask_routines as msk_r
 
-__version__ = 'v2.1.0'
+__version__ = 'v2.1.1'
 
 ######################
 ## Support routines ##
@@ -1191,7 +1191,7 @@ class TOF_campaign(object):
                 dt_axis = PTR_data_object.df_data.index
                 df_tr_coeff = self.get_transmissionCoefficients('interp', dt_axis, df_transmission, PTR_data_object.df_clusters,
                                                                 t_interp = self.processing_config['tr_t_interp'], t_pairing = t_pairing)                # Get transmissions
-                if df_tr_coeff.isnan().sum() == len(df_tr_coeff.values):
+                if np.sum(np.isnan(df_tr_coeff.values)) == len(df_tr_coeff.values):
                     print('----')
                     print('Warning, no valid transmissions found to process data.')
                     print('Check between {} and {}.'.format(start.strftime('%Y-%m-%d %H:%M'), stop.strftime('%Y-%m-%d %H:%M')))
