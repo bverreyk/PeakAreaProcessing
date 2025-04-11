@@ -2328,8 +2328,10 @@ class PTR_data(object):
         # cc_coeff['I_cps_H3O1_21'] = self.df_data[mask_calc_calib][self.mz_col_21].mean()
         # cc_coeff['I_cps_H5O2_38'] = self.df_data[mask_calc_calib][self.mz_col_38].mean()
         for key, val in self.mz_col_primIon.items():
-            cc_coeff['I_cps_{}'.format(key)] = self.df_data[mask_calc_calib][val].mean()
-            
+            try:
+                cc_coeff['I_cps_{}'.format(key)] = self.df_data[mask_calc_calib][val].mean()
+            except:
+                cc_coeff['I_cps_{}'.format(key)] = np.nan
             
         return tr_coeff, cc_coeff, rstd, anc_info
     
