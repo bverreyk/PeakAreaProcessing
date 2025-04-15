@@ -31,7 +31,7 @@ except:
     import IDA_reader as IDA_reader
     import mask_routines as msk_r
 
-__version__ = 'v2.1.2'
+__version__ = 'v2.2.0'
 
 ######################
 ## Support routines ##
@@ -811,7 +811,7 @@ class TOF_campaign(object):
         
         return None
     
-    def process_calibrations(self):
+    def process_calibrations(self,output_calibrations):
         print('start process calibrations, {}'.format(self.calibrations_analysis))
         
         df_calibrations, df_calibrations_rprec, df_calibrations_racc, df_transmission, df_stability, df_anc = self.get_archived_calibrations(tr_corrected=False, deconstructed=False)
@@ -886,6 +886,16 @@ class TOF_campaign(object):
                 df_anc          = pd.concat([df_anc,new_anc],ignore_index=True)
             
             self.archive_calibrations(df_calibrations, df_transmission, df_stability, df_anc)
+            
+            if output_calibrations:
+                dir_o = '{1}{2}{0}{3}{0}{4}{0}{5}{0}'.format(os.sep,self.dir_base,t_start.year,self.instrument,'Nominal',self.data_output_level)
+                check_create_output_dir(dir_o)
+                dir_o = dir_o+'calibrations'+os.sep
+                check_create_output_dir(dir_o)
+                dir_o += t_start.strftime('%m') + os.sep
+                check_create_output_dir(dir_o)
+
+                PTR_data_object.save_output(self, dir_o, self.name, self.instrument, new_trans, new_calib, time_info=self.time_info, processing_config=self.processing_config)
             
             print('--done--')
             del PTR_data_object
@@ -2487,9 +2497,261 @@ class PTR_data(object):
     
         return None
    
-    def save_output(self, dir_o, campaign, instrument, df_tr_coeff, df_cc_coeff, masks = [], threshold = 1, file_format = 'conf0', time_info=None, processing_config={}):
+    
+    def write_hdf5File(self, f_output, tmask, df_tr_coeff, df_cc_coeff, time_info=None, processing_config={}):
+        mz = self.df_data.columns.values
+        sel_vmr = self.df_data.columns.difference(self.mz_col_primIon.values())
+        sel_primIon = self.df_data.columns.intersection(self.mz_col_primIon.values())
+        
+        if time_info is None:
+            time = self.df_data[tmask].index.values
+        else:
+            time = self.df_data[tmask].tz_convert(time_info['tz_out']).index
+
+        da_data = xr.DataArray(
+            data=self.df_data[tmask][sel_vmr].values,
+            dims=["time","mz"],
+            coords=dict(
+                mz=self.df_data[sel_vmr].columns.values,
+                time=time,
+            ),
+            attrs=dict(
+                description=self.data_description,
+                units=self.data_units,
+            ),
+        )
+        
+        da_prec = xr.DataArray(
+            data=self.df_prec[tmask][sel_vmr].values,
+            dims=["time","mz"],
+            coords=dict(
+                mz=self.df_data[sel_vmr].columns.values,
+                time=time,
+            ),
+            attrs=dict(
+                description=self.prec_description,
+                units=self.prec_units,
+            ),
+        )
+        
+        da_primIon = xr.DataArray(
+            data=self.df_data[tmask][sel_primIon].values,
+            dims=["time","mz"],
+            coords=dict(
+                mz=self.df_data[sel_primIon].columns.values,
+                time=time,
+            ),
+            attrs=dict(
+                description="Primary ion signals",
+                units="Transmission corrected counts per second",
+            ),
+        )
+        
+        da_primIon_prec = xr.DataArray(
+            data=self.df_prec[tmask][sel_primIon].values,
+            dims=["time","mz"],
+            coords=dict(
+                mz=self.df_data[sel_primIon].columns.values,
+                time=time,
+            ),
+            attrs=dict(
+                description="Precision on primary ion signals",
+                units="Transmission corrected counts per second",
+            ),
+        )
+        
+        tmp_mask = self.df_clusters.index.isin(mz)
+        limits_min = xr.DataArray(
+            data=self.df_clusters[tmp_mask].cluster_min.values,
+            dims=["mz"],
+            coords=dict(
+                mz=self.df_clusters[tmp_mask].index.values,
+            ),
+            attrs=dict(
+                description="Cluster min",
+                units="atomic mass unit",
+            ),
+        )
+        
+        limits_max = xr.DataArray(
+            data=self.df_clusters[tmp_mask].cluster_max.values,
+            dims=["mz"],
+            coords=dict(
+                mz=self.df_clusters[tmp_mask].index.values,
+            ),
+            attrs=dict(
+                description="Cluster max",
+                units="atomic mass unit",
+            ),
+        )
+        
+        Xr0 = xr.DataArray(
+            data=self.df_clusters[tmp_mask].Xr0.values,
+            dims=["mz"],
+            coords=dict(
+                mz=self.df_clusters[tmp_mask].index.values,
+            ),
+            attrs=dict(
+                description="Xr0",
+                units="",
+            ),
+        )
+        
+        # Set the first principles VMR CC parameters to NaN for directly calibrated compounds
+        tmp = self.df_clusters[tmp_mask][['k [1.e-9 cm3 molecule-1 s-1]','FY', 'IF']]
+        cal_sel = tmp.index.intersection(df_cc_coeff.columns)
+        tmp.loc[[idx in cal_sel for idx in tmp.index],:] = np.nan
+        tmp.loc[[idx in sel_primIon for idx in tmp.index],:] = np.nan
+        k_reac = xr.DataArray(
+            data=tmp['k [1.e-9 cm3 molecule-1 s-1]'].values,
+            dims=["mz"],
+            coords=dict(
+                mz=tmp.index.values,
+            ),
+            attrs=dict(
+                description="Ion/Molecule reaction rate constant",
+                units="1.e-9 cm3 molecule-1 s-1",
+            ),
+        )
+        
+        FY = xr.DataArray(
+            data=tmp.FY.values,
+            dims=["mz"],
+            coords=dict(
+                mz=tmp.index.values,
+            ),
+            attrs=dict(
+                description="Fragmentation yield to correct signal due to fragmentation in the drift tube",
+                units="",
+            ),
+        )
+        
+        IF = xr.DataArray(
+            data=tmp.IF.values,
+            dims=["mz"],
+            coords=dict(
+                mz=tmp.index.values,
+            ),
+            attrs=dict(
+                description="Isotopic factor to correct isotopic ratio",
+                units="",
+            ),
+        )
+        
+        # Should still be adapted to take time interpolated transmissions into account
+        transmission = xr.DataArray(
+            data=df_tr_coeff.T.values[:,0],
+            dims=["mz"],
+            coords=dict(
+                mz=df_tr_coeff.columns.values,
+            ),
+            attrs=dict(
+                description="Transmission coefficient",
+                units="Transmission relative to Tr_21",
+            ),
+        )
+        
+        calibration = xr.DataArray(
+            data=df_cc_coeff.T.values[:,0],
+            dims=["mz"],
+            coords=dict(
+                mz=df_cc_coeff.columns.values,
+            ),
+            attrs=dict(
+                description="Transmission corrected calibration coefficient",
+                units="ppbv trcncps-1",
+            ),
+        )
+                    
+        da_sst = xr.DataArray(
+            data=self.sst[tmask].values,
+            dims=["time"],
+            coords=dict(
+                time=time,
+            ),
+            attrs=dict(
+                description='Measurement time interval',
+                units=self.sst_units,
+            ),
+        )
+
+        data_vars = {'Signal':da_data,'Signal_precision':da_prec,
+                     'Signal_primaryIons':da_primIon,'Signal_primaryIons_prec':da_primIon_prec,
+                     'cluster_min':limits_min,'cluster_max':limits_max,
+                     'Xr0':Xr0,'k_reac':k_reac,'FY':FY,'IF':IF,
+                     'transmission':transmission,'calibration':calibration,
+                     'MeasurementsTimeInterval':da_sst}
+        
+        if not (self.df_zero is None):
+            da_zero = xr.DataArray(
+                data=self.df_zero[tmask][sel_vmr].values,
+                dims=["time","mz"],
+                coords=dict(
+                    mz=self.df_zero[sel_vmr].columns.values,
+                    time=time,
+                ),
+                attrs=dict(
+                    description=self.zero_description,
+                    units=self.zero_units,
+                ),
+            )
+            data_vars['zero'] = da_zero
+
+            da_zero_prec = xr.DataArray(
+                data=self.df_zero_prec[tmask][sel_vmr].values,
+                dims=["time","mz"],
+                coords=dict(
+                    mz=self.df_zero[sel_vmr].columns.values,
+                    time=time,
+                ),
+                attrs=dict(
+                    description=self.zero_prec_description,
+                    units=self.zero_units,
+                ),
+            )
+            data_vars['zero_precision'] = da_zero_prec
+            
+        if not (self.df_racc is None):
+            da_acc = xr.DataArray(
+                data=self.df_racc[tmask].mul(abs(self.df_data[tmask]))[sel_vmr].values,
+                dims=["time","mz"],
+                coords=dict(
+                    mz=self.df_data[sel_vmr].columns.values,
+                    time=time,
+                ),
+                attrs=dict(
+                    description=self.data_description,
+                    units=self.data_units,
+                ),
+            )
+            data_vars['Signal_accuracy'] = da_acc
+    
+        attrs = {}
+        attrs['Peak Area Analysis version'] = __version__
+        attrs['tz_info'] = str(time_info['tz_out'])
+        attrs['default_CC_kinetic'] = self.default_CC_kinetic.round(4)
+        attrs['FPH1'] = self.FPH1
+        attrs['FPH2'] = self.FPH2
+        
+        valid_types = (str, int, float, complex, np.number, np.ndarray, list, tuple) # Valid types for serialization of netcdf output
+        for key, val in processing_config.items():
+            key = 'config_{}'.format(key)
+            if isinstance(val, valid_types):
+                attrs[key] = val
+            else:
+                attrs[key] = str(val)
+                
+        ds_PTR = xr.Dataset(data_vars, attrs=attrs)
+        ds_PTR.to_netcdf(f_output,engine='h5netcdf')
+            
+        return None
+   
+    
+    def save_output(self, dir_o, campaign, instrument, df_tr_coeff, df_cc_coeff, masks = [], threshold = 1, file_format = 'conf0', time_info=None, processing_config={},output_full=False):
         # Save the processed data
         #########################
+        rest_mask = np.zeros(len(self.masks['invalid']))
+        
         for key in self.masks.keys():
             if not 'trimmed' in key:
                 continue
@@ -2502,256 +2764,39 @@ class PTR_data(object):
                 ):
                 continue
             
-            mz = self.df_data.columns.values
-            sel_vmr = self.df_data.columns.difference(self.mz_col_primIon.values())
-            sel_primIon = self.df_data.columns.intersection(self.mz_col_primIon.values())
-            
+            rest_mask += self.masks[key]
+
             if time_info is None:
                 time = self.df_data[self.masks[key]].index.values
             else:
                 time = self.df_data[self.masks[key]].tz_convert(time_info['tz_out']).index
                 out_time = pd.to_datetime(time.min()) # Convert from numpy datetime to dt.datetime
-
-            da_data = xr.DataArray(
-                data=self.df_data[self.masks[key]][sel_vmr].values,
-                dims=["time","mz"],
-                coords=dict(
-                    mz=self.df_data[sel_vmr].columns.values,
-                    time=time,
-                ),
-                attrs=dict(
-                    description=self.data_description,
-                    units=self.data_units,
-                ),
-            )
-            
-            da_prec = xr.DataArray(
-                data=self.df_prec[self.masks[key]][sel_vmr].values,
-                dims=["time","mz"],
-                coords=dict(
-                    mz=self.df_data[sel_vmr].columns.values,
-                    time=time,
-                ),
-                attrs=dict(
-                    description=self.prec_description,
-                    units=self.prec_units,
-                ),
-            )
-            
-            da_primIon = xr.DataArray(
-                data=self.df_data[self.masks[key]][sel_primIon].values,
-                dims=["time","mz"],
-                coords=dict(
-                    mz=self.df_data[sel_primIon].columns.values,
-                    time=time,
-                ),
-                attrs=dict(
-                    description="Primary ion signals",
-                    units="Transmission corrected counts per second",
-                ),
-            )
-            
-            da_primIon_prec = xr.DataArray(
-                data=self.df_prec[self.masks[key]][sel_primIon].values,
-                dims=["time","mz"],
-                coords=dict(
-                    mz=self.df_data[sel_primIon].columns.values,
-                    time=time,
-                ),
-                attrs=dict(
-                    description="Precision on primary ion signals",
-                    units="Transmission corrected counts per second",
-                ),
-            )
-            
-            tmp_mask = self.df_clusters.index.isin(mz)
-            limits_min = xr.DataArray(
-                data=self.df_clusters[tmp_mask].cluster_min.values,
-                dims=["mz"],
-                coords=dict(
-                    mz=self.df_clusters[tmp_mask].index.values,
-                ),
-                attrs=dict(
-                    description="Cluster min",
-                    units="atomic mass unit",
-                ),
-            )
-            
-            limits_max = xr.DataArray(
-                data=self.df_clusters[tmp_mask].cluster_max.values,
-                dims=["mz"],
-                coords=dict(
-                    mz=self.df_clusters[tmp_mask].index.values,
-                ),
-                attrs=dict(
-                    description="Cluster max",
-                    units="atomic mass unit",
-                ),
-            )
-            
-            Xr0 = xr.DataArray(
-                data=self.df_clusters[tmp_mask].Xr0.values,
-                dims=["mz"],
-                coords=dict(
-                    mz=self.df_clusters[tmp_mask].index.values,
-                ),
-                attrs=dict(
-                    description="Xr0",
-                    units="",
-                ),
-            )
-            
-            # Set the first principles VMR CC parameters to NaN for directly calibrated compounds
-            tmp = self.df_clusters[tmp_mask][['k [1.e-9 cm3 molecule-1 s-1]','FY', 'IF']]
-            cal_sel = tmp.index.intersection(df_cc_coeff.columns)
-            tmp.loc[[idx in cal_sel for idx in tmp.index],:] = np.nan
-            tmp.loc[[idx in sel_primIon for idx in tmp.index],:] = np.nan
-            k_reac = xr.DataArray(
-                data=tmp['k [1.e-9 cm3 molecule-1 s-1]'].values,
-                dims=["mz"],
-                coords=dict(
-                    mz=tmp.index.values,
-                ),
-                attrs=dict(
-                    description="Ion/Molecule reaction rate constant",
-                    units="1.e-9 cm3 molecule-1 s-1",
-                ),
-            )
-            
-            FY = xr.DataArray(
-                data=tmp.FY.values,
-                dims=["mz"],
-                coords=dict(
-                    mz=tmp.index.values,
-                ),
-                attrs=dict(
-                    description="Fragmentation yield to correct signal due to fragmentation in the drift tube",
-                    units="",
-                ),
-            )
-            
-            IF = xr.DataArray(
-                data=tmp.IF.values,
-                dims=["mz"],
-                coords=dict(
-                    mz=tmp.index.values,
-                ),
-                attrs=dict(
-                    description="Isotopic factor to correct isotopic ratio",
-                    units="",
-                ),
-            )
-            
-            # Should still be adapted to take time interpolated transmissions into account
-            transmission = xr.DataArray(
-                data=df_tr_coeff.T.values[:,0],
-                dims=["mz"],
-                coords=dict(
-                    mz=df_tr_coeff.columns.values,
-                ),
-                attrs=dict(
-                    description="Transmission coefficient",
-                    units="Transmission relative to Tr_21",
-                ),
-            )
-            
-            calibration = xr.DataArray(
-                data=df_cc_coeff.T.values[:,0],
-                dims=["mz"],
-                coords=dict(
-                    mz=df_cc_coeff.columns.values,
-                ),
-                attrs=dict(
-                    description="Transmission corrected calibration coefficient",
-                    units="ppbv trcncps-1",
-                ),
-            )
-                        
-            da_sst = xr.DataArray(
-                data=self.sst[self.masks[key]].values,
-                dims=["time"],
-                coords=dict(
-                    time=time,
-                ),
-                attrs=dict(
-                    description='Measurement time interval',
-                    units=self.sst_units,
-                ),
-            )
-
-            data_vars = {'Signal':da_data,'Signal_precision':da_prec,
-                         'Signal_primaryIons':da_primIon,'Signal_primaryIons_prec':da_primIon_prec,
-                         'cluster_min':limits_min,'cluster_max':limits_max,
-                         'Xr0':Xr0,'k_reac':k_reac,'FY':FY,'IF':IF,
-                         'transmission':transmission,'calibration':calibration,
-                         'MeasurementsTimeInterval':da_sst}
-            
-            if not (self.df_zero is None):
-                da_zero = xr.DataArray(
-                    data=self.df_zero[self.masks[key]][sel_vmr].values,
-                    dims=["time","mz"],
-                    coords=dict(
-                        mz=self.df_zero[sel_vmr].columns.values,
-                        time=time,
-                    ),
-                    attrs=dict(
-                        description=self.zero_description,
-                        units=self.zero_units,
-                    ),
-                )
-                data_vars['zero'] = da_zero
-
-                da_zero_prec = xr.DataArray(
-                    data=self.df_zero_prec[self.masks[key]][sel_vmr].values,
-                    dims=["time","mz"],
-                    coords=dict(
-                        mz=self.df_zero[sel_vmr].columns.values,
-                        time=time,
-                    ),
-                    attrs=dict(
-                        description=self.zero_prec_description,
-                        units=self.zero_units,
-                    ),
-                )
-                data_vars['zero_precision'] = da_zero_prec
                 
-            if not (self.df_racc is None):
-                da_acc = xr.DataArray(
-                    data=self.df_racc[self.masks[key]].mul(abs(self.df_data[self.masks[key]]))[sel_vmr].values,
-                    dims=["time","mz"],
-                    coords=dict(
-                        mz=self.df_data[sel_vmr].columns.values,
-                        time=time,
-                    ),
-                    attrs=dict(
-                        description=self.data_description,
-                        units=self.data_units,
-                    ),
-                )
-                data_vars['Signal_accuracy'] = da_acc
-
             file_name = self.get_output_filename(out_time, key, campaign, instrument, file_format)
             f_output = '{}{}'.format(dir_o, file_name)
             
             print('Writing: {}'.format(f_output))
-        
-            attrs = {}
-            attrs['Peak Area Analysis version'] = __version__
-            attrs['tz_info'] = str(time_info['tz_out'])
-            attrs['default_CC_kinetic'] = self.default_CC_kinetic.round(4)
-            attrs['FPH1'] = self.FPH1
-            attrs['FPH2'] = self.FPH2
+
+            self.write_hdf5File(file_name, self.masks[key], df_tr_coeff, df_cc_coeff, time_info=time_info,processing_config=processing_config)
+
+        if (rest_mask>1).sum() >= 1:
+            print('Error, {} multi-outputed points!'.format((rest_mask>1).sum()))
+            raise ValueError
             
-            valid_types = (str, int, float, complex, np.number, np.ndarray, list, tuple) # Valid types for serialization of netcdf output
-            for key, val in processing_config.items():
-                key = 'config_{}'.format(key)
-                if isinstance(val, valid_types):
-                    attrs[key] = val
-                else:
-                    attrs[key] = str(val)
-                    
-            ds_PTRTOF4000 = xr.Dataset(data_vars,
-                                       attrs=attrs)
-            ds_PTRTOF4000.to_netcdf(f_output,engine='h5netcdf')
+        # trimmed and invalid data
+        if output_full:
+            rest_mask = (rest_mask == 0)
+            if time_info is None:
+                time = self.df_data[rest_mask].index.values
+            else:
+                time = self.df_data[rest_mask].tz_convert(time_info['tz_out']).index
+                out_time = pd.to_datetime(time.min()) # Convert from numpy datetime to dt.datetime
+                
+            file_name = self.get_output_filename(out_time, 'full', campaign, instrument, file_format)
+            f_output = '{}{}'.format(dir_o, file_name)
+            
+            print('Writing: {}'.format(f_output))
+
+            self.write_hdf5File(file_name, self.masks[key], df_tr_coeff, df_cc_coeff, time_info=time_info,processing_config=processing_config)
             
         return None
