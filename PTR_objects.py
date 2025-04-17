@@ -31,7 +31,7 @@ except:
     import IDA_reader as IDA_reader
     import mask_routines as msk_r
 
-__version__ = 'v2.2.0'
+__version__ = 'v2.2.1'
 
 ######################
 ## Support routines ##
@@ -811,7 +811,7 @@ class TOF_campaign(object):
         
         return None
     
-    def process_calibrations(self,output_calibrations):
+    def process_calibrations(self,output_calibrations=False):
         print('start process calibrations, {}'.format(self.calibrations_analysis))
         
         df_calibrations, df_calibrations_rprec, df_calibrations_racc, df_transmission, df_stability, df_anc = self.get_archived_calibrations(tr_corrected=False, deconstructed=False)
@@ -884,10 +884,21 @@ class TOF_campaign(object):
                 df_transmission = pd.concat([df_transmission,new_trans],ignore_index=True)
                 df_stability    = pd.concat([df_stability,new_stability],ignore_index=True)
                 df_anc          = pd.concat([df_anc,new_anc],ignore_index=True)
-            
+                        
             self.archive_calibrations(df_calibrations, df_transmission, df_stability, df_anc)
             
             if output_calibrations:
+                tmp_calibrations, tmp_calibrations_rprec, tmp_calibrations_racc, tmp_transmission, tmp_stability, tmp_anc = self.get_archived_calibrations(tr_corrected=True, deconstructed=True)
+                tmp_tr_coeff = self.get_transmissionCoefficients('interp', PTR_data_object.df_data.index, tmp_transmission, PTR_data_object.df_clusters,
+                                                                t_interp = 'nearest', t_pairing = 'both')
+                tmp_cc_coeff, tmp_cc_coeff_rprec, tmp_cc_coeff_racc = self.get_calibrationCoefficients(PTR_data_object.df_data.index, tmp_calibrations, 
+                                                                                                    tmp_calibrations_rprec, 
+                                                                                                    tmp_calibrations_racc, 
+                                                                                                    PTR_data_object.df_clusters,
+                                                                                                    t_interp = 'nearest',
+                                                                                                    t_pairing = 'both')
+                
+                
                 dir_o = '{1}{2}{0}{3}{0}{4}{0}{5}{0}'.format(os.sep,self.dir_base,t_start.year,self.instrument,'Nominal',self.data_output_level)
                 check_create_output_dir(dir_o)
                 dir_o = dir_o+'calibrations'+os.sep
@@ -895,7 +906,7 @@ class TOF_campaign(object):
                 dir_o += t_start.strftime('%m') + os.sep
                 check_create_output_dir(dir_o)
 
-                PTR_data_object.save_output(self, dir_o, self.name, self.instrument, new_trans, new_calib, time_info=self.time_info, processing_config=self.processing_config)
+                PTR_data_object.save_output(dir_o, self.name, self.instrument, tmp_tr_coeff, tmp_cc_coeff, masks = ['zero','calib'], time_info=self.time_info, processing_config=self.processing_config)
             
             print('--done--')
             del PTR_data_object
@@ -2729,7 +2740,10 @@ class PTR_data(object):
         attrs = {}
         attrs['Peak Area Analysis version'] = __version__
         attrs['tz_info'] = str(time_info['tz_out'])
-        attrs['default_CC_kinetic'] = self.default_CC_kinetic.round(4)
+        if self.default_CC_kinetic is None:
+            attrs['default_CC_kinetic'] = np.nan
+        else:
+            attrs['default_CC_kinetic'] = self.default_CC_kinetic.round(4)
         attrs['FPH1'] = self.FPH1
         attrs['FPH2'] = self.FPH2
         
@@ -2740,7 +2754,7 @@ class PTR_data(object):
                 attrs[key] = val
             else:
                 attrs[key] = str(val)
-                
+        
         ds_PTR = xr.Dataset(data_vars, attrs=attrs)
         ds_PTR.to_netcdf(f_output,engine='h5netcdf')
             
@@ -2777,7 +2791,7 @@ class PTR_data(object):
             
             print('Writing: {}'.format(f_output))
 
-            self.write_hdf5File(file_name, self.masks[key], df_tr_coeff, df_cc_coeff, time_info=time_info,processing_config=processing_config)
+            self.write_hdf5File(f_output, self.masks[key], df_tr_coeff, df_cc_coeff, time_info=time_info,processing_config=processing_config)
 
         if (rest_mask>1).sum() >= 1:
             print('Error, {} multi-outputed points!'.format((rest_mask>1).sum()))
@@ -2798,5 +2812,5 @@ class PTR_data(object):
             print('Writing: {}'.format(f_output))
 
             self.write_hdf5File(file_name, self.masks[key], df_tr_coeff, df_cc_coeff, time_info=time_info,processing_config=processing_config)
-            
+
         return None
