@@ -31,7 +31,7 @@ except:
     import IDA_reader as IDA_reader
     import mask_routines as msk_r
 
-__version__ = 'v2.2.1'
+__version__ = 'v2.2.2'
 
 ######################
 ## Support routines ##
@@ -95,9 +95,9 @@ def get_timezone(offset):
 ######################
 class TOF_campaign(object):
     def __init__(self, name, dir_base, data_input_level, data_output_level, 
-                 data_config, processing_config,
+                 data_config, processing_config, calibration_config = {'calib_bottle_change':False},
                  year = None, instrument = 'TOF4000',
-                 calibrations_analysis = 'integrated', calib_bottle_change = False, 
+                 calibrations_analysis = 'integrated',
                  hdf5_files = False,
                  mz_selection = {'method':None}, time_info = {'IDA_output':'UTC','PAP_output':'UTC+1','anc_in':'UTC+1'}):
         '''
@@ -235,7 +235,10 @@ class TOF_campaign(object):
         if not calibrations_analysis in ('integrated', 'dedicated'):
             raise ValueError
         self.calibrations_analysis = calibrations_analysis
-        self.calib_bottle_change = calib_bottle_change
+        calib_config = calibration_config.copy()
+        self.calib_bottle_change = calib_config['calib_bottle_change']
+        calib_config.pop('calib_bottle_change')
+        self.calibration_config = calib_config
 
         ## Processing configuration        
         keywords = ['acc_interval',
@@ -852,14 +855,15 @@ class TOF_campaign(object):
                       'tdelta_avg_calib',
                       'tdelta_stability',
                       'rate_coeff_col_calib',
+                      'precision_calc',
                      ]
             
             dir_o_cal = self.get_dir_o_calib()
             calibration_ancillary = self.get_calibration_ancillary(t_start+((t_stop-t_start)/2))
 
             new_trans, new_calib, new_stability, new_anc = PTR_data_object.process_calibration(calibration_ancillary, dir_o_cal, 
-                                                                                               **{key: self.processing_config[key] for key in kwords}, 
-                                                                                               precision_calc=self.processing_config['precision_calc'],
+                                                                                               **{key: self.processing_config[key] for key in kwords},
+                                                                                               **self.calibration_config,
                                                                                                Q_ptrms_corr=self.name)
 
             new_trans['file']     = f_hdf5
@@ -888,6 +892,7 @@ class TOF_campaign(object):
             self.archive_calibrations(df_calibrations, df_transmission, df_stability, df_anc)
             
             if output_calibrations:
+                t_ref = PTR_data_object.df_data.index.min()
                 tmp_calibrations, tmp_calibrations_rprec, tmp_calibrations_racc, tmp_transmission, tmp_stability, tmp_anc = self.get_archived_calibrations(tr_corrected=True, deconstructed=True)
                 tmp_tr_coeff = self.get_transmissionCoefficients('interp', PTR_data_object.df_data.index, tmp_transmission, PTR_data_object.df_clusters,
                                                                 t_interp = 'nearest', t_pairing = 'both')
@@ -899,11 +904,11 @@ class TOF_campaign(object):
                                                                                                     t_pairing = 'both')
                 
                 
-                dir_o = '{1}{2}{0}{3}{0}{4}{0}{5}{0}'.format(os.sep,self.dir_base,t_start.year,self.instrument,'Nominal',self.data_output_level)
+                dir_o = '{1}{2}{0}{3}{0}{4}{0}{5}{0}'.format(os.sep,self.dir_base,t_ref.year,self.instrument,'Nominal',self.data_output_level)
                 check_create_output_dir(dir_o)
                 dir_o = dir_o+'calibrations'+os.sep
                 check_create_output_dir(dir_o)
-                dir_o += t_start.strftime('%m') + os.sep
+                dir_o += t_ref.strftime('%m') + os.sep
                 check_create_output_dir(dir_o)
 
                 PTR_data_object.save_output(dir_o, self.name, self.instrument, tmp_tr_coeff, tmp_cc_coeff, masks = ['zero','calib'], time_info=self.time_info, processing_config=self.processing_config)
@@ -2175,7 +2180,7 @@ class PTR_data(object):
                              tdelta_buf_zero=dt.timedelta(minutes=1),tdelta_avg_zero=dt.timedelta(minutes=5),tdelta_min_zero=dt.timedelta(minutes=20),
                              tdelta_buf_calib=dt.timedelta(minutes=1),tdelta_avg_calib=dt.timedelta(minutes=5),
                              tdelta_stability=dt.timedelta(minutes=60), zero = 'ffill',
-                             rate_coeff_col_calib = '', dict_Xr0={}, Xr0_default=1., 
+                             rate_coeff_col_calib = '', dict_Xr0={}, Xr0_default=1.,
                              Q_zero_air = 800, Q_zero_air_unc = 10, # sccm, 1% of full scale (0-1000 sccm)
                              Q_calib = 10, Q_calib_unc = 0.1,       # unc = 1% stated uncertainty on set point 
                              precision_calc = 'Distribution', Q_ptrms_corr = 'BE-Vie_2022'):
