@@ -31,7 +31,7 @@ except:
     import IDA_reader as IDA_reader
     import mask_routines as msk_r
 
-__version__ = 'v2.2.5'
+__version__ = 'v2.2.6'
 
 ######################
 ## Support routines ##
@@ -2830,6 +2830,6 @@ class PTR_data(object):
             
             print('Writing: {}'.format(f_output))
 
-            self.write_hdf5File(file_name, self.masks[key], df_tr_coeff, df_cc_coeff, time_info=time_info,processing_config=processing_config)
+            self.write_hdf5File(f_output, self.masks[key], df_tr_coeff, df_cc_coeff, time_info=time_info,processing_config=processing_config)
 
         return None
