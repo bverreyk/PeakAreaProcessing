@@ -31,7 +31,7 @@ except:
     import IDA_reader as IDA_reader
     import mask_routines as msk_r
 
-__version__ = 'v2.2.3'
+__version__ = 'v2.2.4'
 
 ######################
 ## Support routines ##
@@ -865,6 +865,12 @@ class TOF_campaign(object):
                                                                                                **{key: self.processing_config[key] for key in kwords},
                                                                                                **self.calibration_config,
                                                                                                Q_ptrms_corr=self.name)
+            
+            if ((new_trans is None) or
+                (new_calib is None) or
+                (new_stability is None) or
+                (new_anc is None)):
+                continue
 
             new_trans['file']     = f_hdf5
             new_calib['file']     = f_hdf5
@@ -2208,6 +2214,11 @@ class PTR_data(object):
                                                                                           tdelta_stability=tdelta_stability)
         
         ctime = self.df_data.index[mask_calc_calib].mean()
+        
+        if ((mask_calc_zero.sum() == 0) or 
+            (mask_calc_calib.sum() == 0)):
+                print('Error during Calibration at {}, no representative zero/calibration measurements found.'.format(ctime))
+                return None, None, None, None
         
         Q_calib     = calib_r.get_Q_calib_corrected(Q_calib)      # Correction from reference point of flow meter
         Q_calib_unc = calib_r.get_Q_calib_corrected(Q_calib_unc)  # Correction from reference point of flow meter
