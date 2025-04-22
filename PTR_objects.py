@@ -31,7 +31,7 @@ except:
     import IDA_reader as IDA_reader
     import mask_routines as msk_r
 
-__version__ = 'v2.2.4'
+__version__ = 'v2.2.5'
 
 ######################
 ## Support routines ##
@@ -1087,7 +1087,7 @@ class TOF_campaign(object):
                 
         return df_cc_clusters, df_cc_clusters_rprec, df_cc_clusters_racc
     
-    def process(self, ongoing = False, t_start = None, t_stop=None, masks = [], output_threshold = 1, file_format = 'conf0', masses=[33.033]):
+    def process(self, ongoing = False, t_start = None, t_stop=None, masks = [], output_threshold = 1, file_format = 'conf0', masses=[33.033],output_full=False):
         '''
         masks: array of strings, contains the masks for which output is asked,
             Usefull for filtering out profile measurements where no EC can be calculated
@@ -1281,7 +1281,10 @@ class TOF_campaign(object):
                             dir_o += t_start.strftime('%d') + os.sep
                             check_create_output_dir(dir_o)
                         
-                        tmp.save_output(dir_o, self.name, self.instrument, df_tr_coeff, df_cc_coeff, masks=masks,threshold=output_threshold,file_format=file_format,time_info=self.time_info, processing_config=self.processing_config)
+                        tmp.save_output(dir_o, self.name, self.instrument, df_tr_coeff, df_cc_coeff,
+                                        masks=masks,threshold=output_threshold,file_format=file_format,
+                                        time_info=self.time_info, processing_config=self.processing_config,
+                                        output_full=output_full)
                         del tmp
                 del PTR_data_object
                 
