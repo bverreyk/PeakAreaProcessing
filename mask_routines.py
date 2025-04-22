@@ -291,7 +291,7 @@ def get_resampled_mask(time_axis,mask,interval,origin='start_day',offset=dt.time
     resampled_mask = None
     resamp = pd.Series(index=time_axis,data=mask).resample(interval,origin=origin,offset=offset)
     if method == 'all':
-        resampled_mask = np.where(resamp.min()==False,False,True)
+        resampled_mask = np.where((np.isnan(resamp.mean())) | (resamp.min()==False),False,True)
     elif method == 'any':
         resampled_mask = np.where(resamp.max()==True,True,False)
     else:
