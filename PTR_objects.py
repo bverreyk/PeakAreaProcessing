@@ -31,7 +31,7 @@ except:
     import IDA_reader as IDA_reader
     import mask_routines as msk_r
 
-__version__ = 'v2.2.6'
+__version__ = 'v2.2.7'
 
 ######################
 ## Support routines ##
@@ -2774,6 +2774,8 @@ class PTR_data(object):
             else:
                 attrs[key] = str(val)
         
+        print('Writing: {}'.format(f_output))
+        
         ds_PTR = xr.Dataset(data_vars, attrs=attrs)
         ds_PTR.to_netcdf(f_output,engine='h5netcdf')
             
@@ -2803,13 +2805,11 @@ class PTR_data(object):
                 time = self.df_data[self.masks[key]].index.values
             else:
                 time = self.df_data[self.masks[key]].tz_convert(time_info['tz_out']).index
-                out_time = pd.to_datetime(time.min()) # Convert from numpy datetime to dt.datetime
                 
+            out_time = pd.to_datetime(time.min()) # Convert from numpy datetime to dt.datetime                
             file_name = self.get_output_filename(out_time, key, campaign, instrument, file_format)
             f_output = '{}{}'.format(dir_o, file_name)
             
-            print('Writing: {}'.format(f_output))
-
             self.write_hdf5File(f_output, self.masks[key], df_tr_coeff, df_cc_coeff, time_info=time_info,processing_config=processing_config)
 
         if (rest_mask>1).sum() >= 1:
@@ -2823,13 +2823,11 @@ class PTR_data(object):
                 time = self.df_data[rest_mask].index.values
             else:
                 time = self.df_data[rest_mask].tz_convert(time_info['tz_out']).index
-                out_time = pd.to_datetime(time.min()) # Convert from numpy datetime to dt.datetime
                 
+            out_time = pd.to_datetime(time.min()) # Convert from numpy datetime to dt.datetime
+            
             file_name = self.get_output_filename(out_time, 'full', campaign, instrument, file_format)
             f_output = '{}{}'.format(dir_o, file_name)
-            
-            print('Writing: {}'.format(f_output))
-
-            self.write_hdf5File(f_output, self.masks[key], df_tr_coeff, df_cc_coeff, time_info=time_info,processing_config=processing_config)
+            self.write_hdf5File(f_output, rest_mask, df_tr_coeff, df_cc_coeff, time_info=time_info,processing_config=processing_config)
 
         return None
