@@ -31,7 +31,7 @@ except:
     import IDA_reader as IDA_reader
     import mask_routines as msk_r
 
-__version__ = 'v2.2.8'
+__version__ = 'v2.2.9'
 
 ######################
 ## Support routines ##
@@ -907,7 +907,7 @@ class TOF_campaign(object):
                                                                                                     PTR_data_object.df_clusters,
                                                                                                     t_interp = 'nearest',
                                                                                                     t_pairing = 'both')
-                
+                PTR_data_object.transform_data_trcnrc(tmp_tr_coeff)                
                 
                 dir_o = '{1}{2}{0}{3}{0}{4}{0}{5}{0}'.format(os.sep,self.dir_base,t_ref.year,self.instrument,'Nominal',self.data_output_level)
                 check_create_output_dir(dir_o)
