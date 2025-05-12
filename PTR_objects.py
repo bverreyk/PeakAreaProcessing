@@ -31,7 +31,7 @@ except:
     import IDA_reader as IDA_reader
     import mask_routines as msk_r
 
-__version__ = 'v2.2.9'
+__version__ = 'v2.2.10'
 
 ######################
 ## Support routines ##
@@ -1408,7 +1408,7 @@ class PTR_data(object):
 #            'C1O1_29.002',
 #            'N2_29.013',
             'N1O1_29.997',
-            'N1O1_31.005',
+#            'N1O1_31.005',
 #            'O2_31.989',
 #            'O2_32.997',
             'O2_33.997',
