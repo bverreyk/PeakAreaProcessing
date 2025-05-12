@@ -153,12 +153,12 @@ fr[mz] = 1.080
 Tr_selection[mz] = True
 
 # Protonated cis-3-hexenol
-mz = 101.096
-mixrat_bottle[mz] = 986
-unc_mixrat_bottle[mz] = 31/2
-k[mz], k_ionicon[mz], k_Holzinger[mz] = 2, 2, 2
-fr[mz] = 1.069
-Tr_selection[mz] = False
+# mz = 101.096
+# mixrat_bottle[mz] = 986
+# unc_mixrat_bottle[mz] = 31/2
+# k[mz], k_ionicon[mz], k_Holzinger[mz] = 2, 2, 2
+# fr[mz] = 1.069
+# Tr_selection[mz] = False
 
 
 # Protonated m-xylene
