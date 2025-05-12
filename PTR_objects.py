@@ -31,7 +31,7 @@ except:
     import IDA_reader as IDA_reader
     import mask_routines as msk_r
 
-__version__ = 'v2.2.7'
+__version__ = 'v2.2.11'
 
 ######################
 ## Support routines ##
@@ -706,7 +706,6 @@ class TOF_campaign(object):
             calibration_ancillary = pd.read_csv('{}Calibration_Ancillary.csv'.format(base_path))
             
         else:
-            calib_dict = {}
             # YYYYMMDD_HHMM from when the bottle was put in place
             list_calib_anc = glob.glob('{}Calibration_Ancillary_????????_????.csv'.format(base_path))
 
@@ -765,7 +764,7 @@ class TOF_campaign(object):
                 df_calibrations_racc  = None
             
             if tr_corrected:
-                # Correct calibration factors here to obtain it in trcncps ppbv-1
+                # Correct calibration factors here to obtain it in tc-ncps ppbv-1
                 df_cc_tmp = df_calibrations.copy()
                 drop = ['file','ctime']
                 for key in df_cc_tmp.columns:
@@ -908,7 +907,7 @@ class TOF_campaign(object):
                                                                                                     PTR_data_object.df_clusters,
                                                                                                     t_interp = 'nearest',
                                                                                                     t_pairing = 'both')
-                
+                PTR_data_object.transform_data_trcnrc(tmp_tr_coeff)                
                 
                 dir_o = '{1}{2}{0}{3}{0}{4}{0}{5}{0}'.format(os.sep,self.dir_base,t_ref.year,self.instrument,'Nominal',self.data_output_level)
                 check_create_output_dir(dir_o)
@@ -1409,7 +1408,7 @@ class PTR_data(object):
 #            'C1O1_29.002',
 #            'N2_29.013',
             'N1O1_29.997',
-            'N1O1_31.005',
+#            'N1O1_31.005',
 #            'O2_31.989',
 #            'O2_32.997',
             'O2_33.997',
@@ -1825,10 +1824,9 @@ class PTR_data(object):
         
         # Reset the primary ion signals
         ###############################
-        # df_ncr[self.mz_col_21], df_ncr[self.mz_col_38] = I_cr_21, I_cr_38
-        # df_ncr_prec[self.mz_col_21], df_ncr_prec[self.mz_col_38] = I_cr_21_prec, I_cr_38_prec
-        df_ncr[self.mz_col_primIon['H3O1_21.022']], df_ncr[self.mz_col_primIon['H5O2_38.033']] = I_cr_21, I_cr_38
-        df_ncr_prec[self.mz_col_primIon['H3O1_21.022']], df_ncr_prec[self.mz_col_primIon['H5O2_38.033']] = I_cr_21_prec, I_cr_38_prec
+        subset = df_ncr.columns.intersection(self.mz_col_primIon.values())
+        df_ncr[subset] = self.df_data[subset]
+        df_ncr_prec[subset] = self.df_prec[subset]
 
         return df_ncr, df_ncr_prec
     
@@ -1856,10 +1854,10 @@ class PTR_data(object):
     def transform_data_trcnrc(self, transmissions):
         self.df_data, self.df_prec = self.get_data_trcnrc(transmissions)
         self.data_description = 'Transmission corrected normalised ion count'
-        self.data_units = 'trcncps'
+        self.data_units = 'tc-ncps'
         
         self.prec_description = 'Precision on Transmission corrected normalised ion count'
-        self.prec_units = 'trcncps'
+        self.prec_units = 'tc-ncps'
 
         return None
     
@@ -1867,11 +1865,11 @@ class PTR_data(object):
         '''
         Transform normalised data to volume mixing ratio, take into account the transmission, direct calibration, and chemical rates.
         There is a possibility to define a multiplicator to take into account isotopic ratio.
-          - df_calibration [trcncps ppbv-1]
+          - df_calibration [tc-ncps ppbv-1]
           - k_reac(_mz/_default) [1.e-9 cm3 molecule-1 s-1]
         '''
-        if not self.data_units == 'trcncps':
-            print('Error, to calculate VMRs the signal is assumed to be in transmission corrected normalized counts per second [trcncps]')
+        if not self.data_units == 'tc-ncps':
+            print('Error, to calculate VMRs the signal is assumed to be in transmission corrected normalized counts per second [tc-ncps]')
             raise ValueError
         
         t_reac, N_DT = calib_r.get_ancilarry_PTRT_drift_calib_av(self.df_P_drift.mean(),
@@ -2564,6 +2562,13 @@ class PTR_data(object):
             ),
         )
         
+        if self.data_units == 'ppbv':
+            prim_ion_units = "Transmission corrected counts per second"
+        if self.data_units == 'tr-ncps':
+            prim_ion_units = "Transmission corrected counts per second"
+        if self.data_units == 'ncps':
+            prim_ion_units = "cps"
+            
         da_primIon = xr.DataArray(
             data=self.df_data[tmask][sel_primIon].values,
             dims=["time","mz"],
@@ -2573,10 +2578,16 @@ class PTR_data(object):
             ),
             attrs=dict(
                 description="Primary ion signals",
-                units="Transmission corrected counts per second",
+                units=prim_ion_units,
             ),
         )
         
+        if self.prec_units == 'ppbv':
+            prim_ion_units = "Transmission corrected counts per second"
+        if self.prec_units == 'tr-ncps':
+            prim_ion_units = "Transmission corrected counts per second"
+        if self.prec_units == 'ncps':
+            prim_ion_units = "cps"
         da_primIon_prec = xr.DataArray(
             data=self.df_prec[tmask][sel_primIon].values,
             dims=["time","mz"],
@@ -2586,7 +2597,7 @@ class PTR_data(object):
             ),
             attrs=dict(
                 description="Precision on primary ion signals",
-                units="Transmission corrected counts per second",
+                units=prim_ion_units,
             ),
         )
         
@@ -2689,7 +2700,7 @@ class PTR_data(object):
             ),
             attrs=dict(
                 description="Transmission corrected calibration coefficient",
-                units="ppbv trcncps-1",
+                units="ppbv tc-ncps-1",
             ),
         )
                     
