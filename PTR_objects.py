@@ -31,7 +31,7 @@ except:
     import IDA_reader as IDA_reader
     import mask_routines as msk_r
 
-__version__ = 'v2.2.11'
+__version__ = 'v2.2.12'
 
 ######################
 ## Support routines ##
@@ -2563,11 +2563,14 @@ class PTR_data(object):
         )
         
         if self.data_units == 'ppbv':
-            prim_ion_units = "Transmission corrected counts per second"
-        if self.data_units == 'tr-ncps':
-            prim_ion_units = "Transmission corrected counts per second"
-        if self.data_units == 'ncps':
+            prim_ion_units = "tc-cps"
+        elif self.data_units == 'tc-ncps':
+            prim_ion_units = "tc-cps"
+        elif self.data_units == 'ncps':
             prim_ion_units = "cps"
+        else:
+            print('data units not recognised: {}'.format(self.data_units))
+            raise ValueError
             
         da_primIon = xr.DataArray(
             data=self.df_data[tmask][sel_primIon].values,
@@ -2583,11 +2586,15 @@ class PTR_data(object):
         )
         
         if self.prec_units == 'ppbv':
-            prim_ion_units = "Transmission corrected counts per second"
-        if self.prec_units == 'tr-ncps':
-            prim_ion_units = "Transmission corrected counts per second"
-        if self.prec_units == 'ncps':
+            prim_ion_units = "tc-cps"
+        elif self.prec_units == 'tc-ncps':
+            prim_ion_units = "tc-cps"
+        elif self.prec_units == 'ncps':
             prim_ion_units = "cps"
+        else:
+            print('data units not recognised: {}'.format(self.data_units))
+            raise ValueError
+            
         da_primIon_prec = xr.DataArray(
             data=self.df_prec[tmask][sel_primIon].values,
             dims=["time","mz"],
