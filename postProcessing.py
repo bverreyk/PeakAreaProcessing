@@ -436,6 +436,7 @@ def transform_publishable_hdf5_to_csv(ds,filter_mz=[21.022,29.997,33.997,38.033]
     df_flag_source = ds.flag_source.to_pandas()
     df_flag_QAQC   = ds.flag_QAQC.to_pandas()
     df_flag_plume  = ds.flag_plume.to_pandas()*0.559
+    df_flag_plume.fillna(0.,inplace=True)
 
     flag_columns = df_flag_source.columns
     flag_index   = df_flag_source.index
@@ -455,7 +456,7 @@ def transform_publishable_hdf5_to_csv(ds,filter_mz=[21.022,29.997,33.997,38.033]
     df_flag_source = df_flag_source.where(~((df_flag_source == 0.683) | (df_flag_source == 0.684)), 0.980)
     
     ## Combine flags
-    flag = df_flag_source.values+df_flag_plume.values
+    flag = np.where(df_flag_source.values>0.,df_flag_source.values,df_flag_plume.values) # Invalid flags take precedent over plume flags
     flag = np.where((flag>0),flag+df_flag_QAQC.values*1.e-3,df_flag_QAQC.values)
     flag = np.char.mod('%.6f', flag)
 
@@ -482,10 +483,11 @@ def transform_publishable_hdf5_to_csv(ds,filter_mz=[21.022,29.997,33.997,38.033]
 
     df_concat.index.name = 'TIMESTAMP_START'
     df_concat['TIMESTAMP_END'] = df_concat.index+dt.timedelta(minutes=1)
-    df_concat['DOY_START'] = get_doy_fraction(df_concat.index)
-    df_concat['DOY_END'] = get_doy_fraction(df_concat.TIMESTAMP_END)
+#    df_concat['DOY_START'] = get_doy_fraction(df_concat.index)
+#    df_concat['DOY_END'] = get_doy_fraction(df_concat.TIMESTAMP_END)
 
-    col_order = ['TIMESTAMP_END','DOY_START','DOY_END','height']
+#    col_order = ['TIMESTAMP_END','DOY_START','DOY_END','height']
+    col_order = ['TIMESTAMP_END','height']
     for mz in ds.mz:
         # Filter some columns
         if mz in filter_mz:
@@ -507,6 +509,27 @@ def flag_plumes(ds, df_flag):
     ds['flag_plume'] = xr.DataArray(tmp,dims=['time','mz'],coords=[tmp.index-dt.timedelta(minutes=60),tmp.columns])
     return ds
 
+def overwrite_flags(ds,df_userFlags,mz_tol=0.005):
+    '''
+    df_flag columns contains:
+    time_start [UT]
+    time_stop [UT]
+    height (in m a.g.l., if -999 apply to all levels)
+    flag to be used
+    mz (if -999, apply to all mz)
+    '''
+    ds_userFlagged = ds.copy()
+    for instance in df_userFlags.columns:
+        t_mask = (ds_userFlagged.time >= pd.to_datetime(df_userFlags[instance].TIME_START)) & (ds_userFlagged.time <= pd.to_datetime(df_userFlags[instance].TIME_STOP))
+        if df_userFlags[instance].HEIGHT != -999:
+            t_mask = t_mask & (ds_userFlagged.measurement_height == df_userFlags[instance].HEIGHT)
+
+        if df_userFlags[instance].MZ != -999:
+            ds_userFlagged.sel(mz=df_userFlags[instance].MZ,method='nearest',tolerance=mz_tol).flag_source.loc[t_mask] =  df_userFlags[instance].FLAG*1.e-3
+        else:
+            for mz in ds_userFlagged.mz.values:
+                ds_userFlagged.sel(mz=mz).flag_source.loc[t_mask] =  df_userFlags[instance].FLAG*1.e-3
+    return ds_userFlagged
 
 ## EXTRACT PROFILES
 def boolean_vector2ranges(x):
